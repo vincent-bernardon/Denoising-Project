@@ -2,52 +2,117 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from load_cifar10 import CIFAR10Loader
-import matplotlib.pyplot as plt
+from noise_generator import NoiseGenerator
+from image_visualizer import ImageVisualizer
 import numpy as np
 
 
-def main():    
-    #charger un dataset
-    loader = CIFAR10Loader()
+def load_data():
+    """
+    Charge le dataset CIFAR-10
     
-    #charger/remplir les données
-    print("\nChargement des données...")
+    Returns:
+        tuple: (loader, x_train, y_train, x_test, y_test)
+    """
+    print("=" * 60)
+    print("Chargement du dataset CIFAR-10")
+    print("=" * 60)
+    
+    loader = CIFAR10Loader()
     x_train, y_train, x_test, y_test = loader.load_all_data()
     
-    # Afficher les informations
     loader.print_info()
     
-    print("\nAffichage de quelques exemples d'images...")
-    visualize_images(loader.x_train, loader.y_train, loader.class_names, n_samples=10)
+    return loader, x_train, y_train, x_test, y_test
 
 
-def visualize_images(images, labels, class_names, n_samples=10):
+def add_noise_to_images(images, noise_type='gaussian', **noise_params):
     """
-    Affiche une grille d'images
+    Ajoute du bruit aux images
     
     Args:
         images: Array d'images (N, 32, 32, 3)
-        labels: Array de labels (N,)
-        class_names: Liste des noms de classes
-        n_samples: Nombre d'images à afficher
+        noise_type: Type de bruit ('gaussian', 'salt_pepper', 'mixed', etc.)
+        **noise_params: Paramètres du bruit
+        
+    Returns:
+        Images bruitées
     """
-    fig, axes = plt.subplots(2, 5, figsize=(15, 6))
-    axes = axes.ravel()
+    print(f"\nAjout de bruit ({noise_type})...")
     
-    #affichage d'exmple d'images de tout les classes
-    for i in range(n_samples):
-        img = images[i]
-        axes[i].imshow(img)
-        axes[i].set_title(f'{class_names[labels[i]]}', fontsize=12, fontweight='bold')
-        axes[i].axis('off')
+    if noise_type == 'gaussian':
+        noisy_images = NoiseGenerator.add_gaussian_noise(images, **noise_params)
+    elif noise_type == 'salt_pepper':
+        noisy_images = NoiseGenerator.add_salt_and_pepper_noise(images, **noise_params)
+    elif noise_type == 'speckle':
+        noisy_images = NoiseGenerator.add_speckle_noise(images, **noise_params)
+    elif noise_type == 'poisson':
+        noisy_images = NoiseGenerator.add_poisson_noise(images)
+    elif noise_type == 'uniform':
+        noisy_images = NoiseGenerator.add_uniform_noise(images, **noise_params)
+    elif noise_type == 'mixed':
+        noisy_images = NoiseGenerator.add_mixed_noise(images, **noise_params)
+    else:
+        raise ValueError(f"Type de bruit inconnu: {noise_type}")
     
-    plt.tight_layout()
+    print(f"✓ Bruit ajouté avec succès")
+    return noisy_images
+
+
+def main():
+    """
+    Fonction principale
+    """
+    # 1. Charger les données
+    loader, x_train, y_train, x_test, y_test = load_data()
     
-    save_path = 'code/cifar10_samples.png'
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    print(f"Images sauvegardées dans '{save_path}'")
+    # 2. Afficher quelques images propres
+    print("\n" + "=" * 60)
+    print("ÉTAPE 1: Visualisation des images propres")
+    print("=" * 60)
+    ImageVisualizer.visualize_clean_images(x_train, y_train, loader.class_names, n_samples=10)
     
-    plt.show()
+    # 3. Démonstration de tous les types de bruit sur une image
+    print("\n" + "=" * 60)
+    print("ÉTAPE 2: Démonstration des types de bruit")
+    print("=" * 60)
+    sample_image = x_train[0]
+    sample_label = loader.class_names[y_train[0]]
+    ImageVisualizer.demonstrate_noise_types(sample_image, sample_label)
+    
+    # 4. Ajouter du bruit gaussien à plusieurs images
+    print("\n" + "=" * 60)
+    print("ÉTAPE 3: Comparaison images propres vs bruitées (Gaussien)")
+    print("=" * 60)
+    noisy_images = add_noise_to_images(
+        x_train[:5], 
+        noise_type='gaussian', 
+        std=25
+    )
+    ImageVisualizer.compare_clean_and_noisy(
+        x_train[:5], noisy_images, y_train, loader.class_names, 
+        noise_type='gaussian', n_samples=5
+    )
+    
+    # 5. Tester avec un bruit mixte (plus réaliste)
+    print("\n" + "=" * 60)
+    print("ÉTAPE 4: Test avec bruit mixte")
+    print("=" * 60)
+    mixed_noisy = add_noise_to_images(
+        x_train[5:10],
+        noise_type='mixed',
+        gaussian_std=20,
+        salt_prob=0.01,
+        pepper_prob=0.01
+    )
+    ImageVisualizer.compare_clean_and_noisy(
+        x_train[5:10], mixed_noisy, y_train[5:10], loader.class_names, 
+        noise_type='mixed', n_samples=5
+    )
+    
+    print("\n" + "=" * 60)
+    print("✓ Démonstration terminée avec succès!")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
