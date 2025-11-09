@@ -26,6 +26,29 @@ def load_data():
     return loader, x_train, y_train, x_test, y_test
 
 
+def select_one_per_class(labels, n_classes=10):
+    """
+    Retourne les indices de la première occurrence de chaque classe (0..n_classes-1).
+
+    Args:
+        labels: array-like des labels (ex: y_train)
+        n_classes: nombre de classes à récupérer
+
+    Returns:
+        list d'indices (longueur <= n_classes)
+    """
+    indices = []
+    seen = set()
+    for i, lab in enumerate(labels):
+        lab_int = int(lab)
+        if lab_int not in seen:
+            indices.append(i)
+            seen.add(lab_int)
+            if len(seen) >= n_classes:
+                break
+    return indices
+
+
 def add_noise_to_images(images, noise_type='gaussian', **noise_params):
     """
     Ajoute du bruit aux images
@@ -60,60 +83,56 @@ def add_noise_to_images(images, noise_type='gaussian', **noise_params):
 
 
 def main():
-    """
-    Fonction principale
-    """
-    # 1. Charger les données
     loader, x_train, y_train, x_test, y_test = load_data()
-    
-    # 2. Afficher quelques images propres
+    return loader, x_train, y_train, x_test, y_test
+
+
+def run_visualization_demo(loader, x_train, y_train, x_test=None, y_test=None):
+    """
+    Regroupe toute la logique de démonstration/visualisation :
+      - affiche une image par classe
+      - démontre les types de bruit sur une image (frog)
+      - compare clean vs noisy (gaussian & mixed) en utilisant la même sélection
+
+    Cette fonction permet de garder `main()` propre pour l'intégration du VAE plus tard.
+    """
+    # 1. Sélectionner une image par classe
     print("\n" + "=" * 60)
-    print("ÉTAPE 1: Visualisation des images propres")
+    print("DEMO: Une image par classe")
     print("=" * 60)
-    ImageVisualizer.visualize_clean_images(x_train, y_train, loader.class_names, n_samples=10)
-    
-    # 3. Démonstration de tous les types de bruit sur une image
+    indices = select_one_per_class(y_train, n_classes=len(loader.class_names))
+    ImageVisualizer.visualize_clean_images(x_train[indices], y_train[indices], loader.class_names, n_samples=len(indices))
+
+    # 2. Démonstration des types de bruit sur une image 'frog' (label 6) si possible
     print("\n" + "=" * 60)
-    print("ÉTAPE 2: Démonstration des types de bruit")
+    print("DEMO: Types de bruit (ex. 'frog')")
     print("=" * 60)
-    sample_image = x_train[0]
-    sample_label = loader.class_names[y_train[0]]
+    try:
+        frog_idx = int(np.where(y_train == 6)[0][0])
+    except Exception:
+        frog_idx = indices[0]
+    sample_image = x_train[frog_idx]
+    sample_label = loader.class_names[int(y_train[frog_idx])]
     ImageVisualizer.demonstrate_noise_types(sample_image, sample_label)
-    
-    # 4. Ajouter du bruit gaussien à plusieurs images
+
+    # 3. Comparaison clean vs noisy (Gaussien) en utilisant les mêmes indices
     print("\n" + "=" * 60)
-    print("ÉTAPE 3: Comparaison images propres vs bruitées (Gaussien)")
+    print("DEMO: Comparaison clean vs noisy (Gaussien)")
     print("=" * 60)
-    noisy_images = add_noise_to_images(
-        x_train[:5], 
-        noise_type='gaussian', 
-        std=25
-    )
-    ImageVisualizer.compare_clean_and_noisy(
-        x_train[:5], noisy_images, y_train, loader.class_names, 
-        noise_type='gaussian', n_samples=5
-    )
-    
-    # 5. Tester avec un bruit mixte (plus réaliste)
+    noisy_images = add_noise_to_images(x_train[indices], noise_type='gaussian', std=25)
+    ImageVisualizer.compare_clean_and_noisy(x_train[indices], noisy_images, y_train[indices], loader.class_names, noise_type='gaussian', n_samples=len(indices))
+
+    # 4. Comparaison clean vs noisy (Mixte)
     print("\n" + "=" * 60)
-    print("ÉTAPE 4: Test avec bruit mixte")
+    print("DEMO: Comparaison clean vs noisy (Mixte)")
     print("=" * 60)
-    mixed_noisy = add_noise_to_images(
-        x_train[5:10],
-        noise_type='mixed',
-        gaussian_std=20,
-        salt_prob=0.01,
-        pepper_prob=0.01
-    )
-    ImageVisualizer.compare_clean_and_noisy(
-        x_train[5:10], mixed_noisy, y_train[5:10], loader.class_names, 
-        noise_type='mixed', n_samples=5
-    )
-    
-    print("\n" + "=" * 60)
-    print("✓ Démonstration terminée avec succès!")
-    print("=" * 60)
+    mixed_noisy = add_noise_to_images(x_train[indices], noise_type='mixed', gaussian_std=20, salt_prob=0.01, pepper_prob=0.01)
+    ImageVisualizer.compare_clean_and_noisy(x_train[indices], mixed_noisy, y_train[indices], loader.class_names, noise_type='mixed', n_samples=len(indices))
+
+    print("\nDEMO terminée ✔")
 
 
 if __name__ == "__main__":
-    main()
+    # main reste minimal — charger les données et lancer la démo pour l'instant
+    loader, x_train, y_train, x_test, y_test = main()
+    run_visualization_demo(loader, x_train, y_train, x_test, y_test)
