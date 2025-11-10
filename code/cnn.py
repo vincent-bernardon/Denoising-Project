@@ -4,6 +4,7 @@ import torch.optim as optim
 from load_cifar10 import CIFAR10Loader
 from noise_generator import NoiseGenerator
 from image_visualizer import ImageVisualizer
+from vae_model import Encoder
 import numpy as np
 
 
@@ -82,11 +83,6 @@ def add_noise_to_images(images, noise_type='gaussian', **noise_params):
     return noisy_images
 
 
-def main():
-    loader, x_train, y_train, x_test, y_test = load_data()
-    return loader, x_train, y_train, x_test, y_test
-
-
 def run_visualization_demo(loader, x_train, y_train, x_test=None, y_test=None):
     """
     Regroupe toute la logique de démonstration/visualisation :
@@ -132,7 +128,94 @@ def run_visualization_demo(loader, x_train, y_train, x_test=None, y_test=None):
     print("\nDEMO terminée ✔")
 
 
+def test_vae_encoder(x_train, y_train, class_names):
+    """
+    Teste l'encodeur VAE avec des données réelles de CIFAR-10 bruitées
+    
+    Args:
+        x_train: Images d'entraînement (N, 32, 32, 3)
+        y_train: Labels d'entraînement
+        class_names: Noms des classes
+    """
+    print("\n" + "=" * 60)
+    print("Test de l'Encodeur VAE avec images bruitées")
+    print("=" * 60)
+    
+    # Créer un encodeur
+    latent_dim = 128
+    encoder = Encoder(latent_dim=latent_dim)
+    
+    # Sélectionner quelques images réelles (une par classe)
+    indices = select_one_per_class(y_train, n_classes=10)
+    batch_images = x_train[indices]
+    batch_labels = y_train[indices]
+    
+    print(f"\nNombre d'images sélectionnées: {len(indices)}")
+    print(f"Classes: {[class_names[int(label)] for label in batch_labels]}")
+    
+    # Choisir un type de bruit aléatoire
+    noise_types = ['gaussian', 'salt_pepper', 'speckle', 'poisson', 'uniform', 'mixed']
+    noise_type = np.random.choice(noise_types)
+    
+    print(f"\nType de bruit appliqué: {noise_type}")
+    
+    # Ajouter du bruit aux images
+    if noise_type == 'gaussian':
+        noisy_images = NoiseGenerator.add_gaussian_noise(batch_images, std=25)
+    elif noise_type == 'salt_pepper':
+        noisy_images = NoiseGenerator.add_salt_and_pepper_noise(batch_images, salt_prob=0.02, pepper_prob=0.02)
+    elif noise_type == 'speckle':
+        noisy_images = NoiseGenerator.add_speckle_noise(batch_images, std=0.1)
+    elif noise_type == 'poisson':
+        noisy_images = NoiseGenerator.add_poisson_noise(batch_images)
+    elif noise_type == 'uniform':
+        noisy_images = NoiseGenerator.add_uniform_noise(batch_images, low=-30, high=30)
+    else:  # mixed
+        noisy_images = NoiseGenerator.add_mixed_noise(batch_images, gaussian_std=20, salt_prob=0.01, pepper_prob=0.01)
+    
+    # Convertir en tenseur PyTorch (N, H, W, C) -> (N, C, H, W)
+    x = torch.from_numpy(noisy_images).permute(0, 3, 1, 2).float()
+    
+    print(f"\nInput shape: {x.shape}")
+    print(f"Latent dimension: {latent_dim}")
+    
+    # Forward pass
+    mu, logvar = encoder(x)
+    
+    print(f"\nOutput mu shape: {mu.shape}")
+    print(f"Output logvar shape: {logvar.shape}")
+    
+    # Vérifier les statistiques
+    print(f"\nStatistiques de mu:")
+    print(f"  Mean: {mu.mean().item():.4f}")
+    print(f"  Std: {mu.std().item():.4f}")
+    print(f"  Min: {mu.min().item():.4f}")
+    print(f"  Max: {mu.max().item():.4f}")
+    
+    print(f"\nStatistiques de logvar:")
+    print(f"  Mean: {logvar.mean().item():.4f}")
+    print(f"  Std: {logvar.std().item():.4f}")
+    print(f"  Min: {logvar.min().item():.4f}")
+    print(f"  Max: {logvar.max().item():.4f}")
+    
+    # Compter les paramètres
+    total_params = sum(p.numel() for p in encoder.parameters())
+    trainable_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
+    
+    print(f"\nNombre de paramètres:")
+    print(f"  Total: {total_params:,}")
+    print(f"  Entraînables: {trainable_params:,}")
+    
+    print("\n" + "=" * 60)
+    print("✓ Test de l'encodeur réussi!")
+    print("=" * 60)
+
+
+def main():
+    loader, x_train, y_train, x_test, y_test = load_data()
+    return loader, x_train, y_train, x_test, y_test
+
 if __name__ == "__main__":
-    # main reste minimal — charger les données et lancer la démo pour l'instant
+    # main reste minimal — charger les données et tester l'encodeur VAE
     loader, x_train, y_train, x_test, y_test = main()
-    run_visualization_demo(loader, x_train, y_train, x_test, y_test)
+    test_vae_encoder(x_train, y_train, loader.class_names)
