@@ -88,3 +88,24 @@ class Encoder(nn.Module):
         logvar = self.fc_logvar(x)  # (batch, latent_dim)
         
         return mu, logvar
+    
+    def reparameterize(self, mu, logvar):
+        """
+        Reparameterization trick pour échantillonner z de manière différentiable
+        
+        Args:
+            mu (torch.Tensor): Moyenne de la distribution latente (batch, latent_dim)
+            logvar (torch.Tensor): Log-variance de la distribution (batch, latent_dim)
+            
+        Returns:
+            z (torch.Tensor): Vecteur latent échantillonné (batch, latent_dim)
+            
+        Note:
+            z = mu + sigma * epsilon
+            où sigma = exp(log(sigma²) / 2) = exp(logvar / 2)
+            et epsilon ~ N(0, 1)
+        """
+        std = torch.exp(0.5 * logvar)  # sigma = exp(logvar / 2)
+        eps = torch.randn_like(std)     # epsilon ~ N(0, 1)
+        z = mu + eps * std              # z = mu + sigma * epsilon
+        return z

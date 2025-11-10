@@ -198,6 +198,26 @@ def test_vae_encoder(x_train, y_train, class_names):
     print(f"  Min: {logvar.min().item():.4f}")
     print(f"  Max: {logvar.max().item():.4f}")
     
+    # Test de la reparamétrisation
+    print("\n" + "-" * 60)
+    print("Test de la reparamétrisation")
+    print("-" * 60)
+    
+    z = encoder.reparameterize(mu, logvar)
+    
+    print(f"\nOutput z shape: {z.shape}")
+    print(f"\nStatistiques de z (vecteur latent):")
+    print(f"  Mean: {z.mean().item():.4f}")
+    print(f"  Std: {z.std().item():.4f}")
+    print(f"  Min: {z.min().item():.4f}")
+    print(f"  Max: {z.max().item():.4f}")
+    
+    # Vérifier que z est différent à chaque appel (stochasticité)
+    z2 = encoder.reparameterize(mu, logvar)
+    diff = torch.abs(z - z2).mean().item()
+    print(f"\nDifférence moyenne entre 2 échantillons: {diff:.4f}")
+    print(f"✓ Reparamétrisation stochastique: {'Oui' if diff > 0.01 else 'Non (problème!)'}")
+    
     # Compter les paramètres
     total_params = sum(p.numel() for p in encoder.parameters())
     trainable_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
