@@ -26,28 +26,28 @@ class Encoder(nn.Module):
         
         self.latent_dim = latent_dim
         
-        # Bloc 1: 32x32x3 → 16x16x32
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1)
-        self.bn1 = nn.BatchNorm2d(32)
+        # Bloc 1: 32x32x3 → 16x16x64 (+ de channels pour + de capacité)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=4, stride=2, padding=1)
+        self.bn1 = nn.BatchNorm2d(64)
         
-        # Bloc 2: 16x16x32 → 8x8x64
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
-        self.bn2 = nn.BatchNorm2d(64)
+        # Bloc 2: 16x16x64 → 8x8x128
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
         
-        # Bloc 3: 8x8x64 → 4x4x128
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
-        self.bn3 = nn.BatchNorm2d(128)
+        # Bloc 3: 8x8x128 → 4x4x256
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1)
+        self.bn3 = nn.BatchNorm2d(256)
         
-        # Bloc 4: 4x4x128 → 2x2x256
-        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1)
-        self.bn4 = nn.BatchNorm2d(256)
+        # Bloc 4: 4x4x256 → 2x2x512
+        self.conv4 = nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1)
+        self.bn4 = nn.BatchNorm2d(512)
         
-        # Taille finale après convolutions: 2x2x256 = 1024 features
+        # Taille finale après convolutions: 2x2x512 = 2048 features
         self.flatten = nn.Flatten()
         
         # Couches fully-connected pour mu et logvar
-        self.fc_mu = nn.Linear(2 * 2 * 256, latent_dim)
-        self.fc_logvar = nn.Linear(2 * 2 * 256, latent_dim)
+        self.fc_mu = nn.Linear(2 * 2 * 512, latent_dim)
+        self.fc_logvar = nn.Linear(2 * 2 * 512, latent_dim)
         
     def forward(self, x):
         """
@@ -61,27 +61,27 @@ class Encoder(nn.Module):
             logvar (torch.Tensor): Log-variance de la distribution (batch, latent_dim)
         """
         # Bloc 1
-        x = self.conv1(x)           # (batch, 32, 16, 16)
+        x = self.conv1(x)           # (batch, 64, 16, 16)
         x = self.bn1(x)
-        x = F.leaky_relu(x, 0.2)
+        x = F.relu(x)               # ReLU standard (+ stable que LeakyReLU)
         
         # Bloc 2
-        x = self.conv2(x)           # (batch, 64, 8, 8)
+        x = self.conv2(x)           # (batch, 128, 8, 8)
         x = self.bn2(x)
-        x = F.leaky_relu(x, 0.2)
+        x = F.relu(x)
         
         # Bloc 3
-        x = self.conv3(x)           # (batch, 128, 4, 4)
+        x = self.conv3(x)           # (batch, 256, 4, 4)
         x = self.bn3(x)
-        x = F.leaky_relu(x, 0.2)
+        x = F.relu(x)
         
         # Bloc 4
-        x = self.conv4(x)           # (batch, 256, 2, 2)
+        x = self.conv4(x)           # (batch, 512, 2, 2)
         x = self.bn4(x)
-        x = F.leaky_relu(x, 0.2)
+        x = F.relu(x)
         
         # Aplatir
-        x = self.flatten(x)         # (batch, 1024)
+        x = self.flatten(x)         # (batch, 2048)
         
         # Calculer mu et logvar
         mu = self.fc_mu(x)          # (batch, latent_dim)
@@ -134,23 +134,27 @@ class Decoder(nn.Module):
         
         self.latent_dim = latent_dim
         
-        # Couche fully-connected pour passer de latent_dim à 2x2x256
-        self.fc = nn.Linear(latent_dim, 2 * 2 * 256)
+        # Couche fully-connected pour passer de latent_dim à 2x2x512
+        self.fc = nn.Linear(latent_dim, 2 * 2 * 512)
         
-        # Bloc 1: 2x2x256 → 4x4x128
-        self.deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1)
-        self.bn1 = nn.BatchNorm2d(128)
+        # Bloc 1: 2x2x512 → 4x4x256
+        self.deconv1 = nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1)
+        self.bn1 = nn.BatchNorm2d(256)
         
-        # Bloc 2: 4x4x128 → 8x8x64
-        self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
-        self.bn2 = nn.BatchNorm2d(64)
+        # Bloc 2: 4x4x256 → 8x8x128
+        self.deconv2 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1)
+        self.bn2 = nn.BatchNorm2d(128)
         
-        # Bloc 3: 8x8x64 → 16x16x32
-        self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
-        self.bn3 = nn.BatchNorm2d(32)
+        # Bloc 3: 8x8x128 → 16x16x64
+        self.deconv3 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
         
-        # Bloc 4: 16x16x32 → 32x32x3
-        self.deconv4 = nn.ConvTranspose2d(32, 3, kernel_size=4, stride=2, padding=1)
+        # Bloc 4: 16x16x64 → 32x32x32
+        self.deconv4 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
+        self.bn4 = nn.BatchNorm2d(32)
+        
+        # Couche finale: 32x32x32 → 32x32x3 avec convolution 1x1 pour plus de précision
+        self.final_conv = nn.Conv2d(32, 3, kernel_size=1)
         
     def forward(self, z):
         """
@@ -162,27 +166,32 @@ class Decoder(nn.Module):
         Returns:
             x_recon (torch.Tensor): Image reconstruite (batch, 3, 32, 32)
         """
-        # Fully connected: latent_dim → 1024
-        x = self.fc(z)                      # (batch, 1024)
-        x = x.view(-1, 256, 2, 2)           # (batch, 256, 2, 2)
+        # Fully connected: latent_dim → 2048
+        x = self.fc(z)                      # (batch, 2048)
+        x = x.view(-1, 512, 2, 2)           # (batch, 512, 2, 2)
         
-        # Bloc 1: 2x2x256 → 4x4x128
-        x = self.deconv1(x)                 # (batch, 128, 4, 4)
+        # Bloc 1: 2x2x512 → 4x4x256
+        x = self.deconv1(x)                 # (batch, 256, 4, 4)
         x = self.bn1(x)
-        x = F.leaky_relu(x, 0.2)
+        x = F.relu(x)
         
-        # Bloc 2: 4x4x128 → 8x8x64
-        x = self.deconv2(x)                 # (batch, 64, 8, 8)
+        # Bloc 2: 4x4x256 → 8x8x128
+        x = self.deconv2(x)                 # (batch, 128, 8, 8)
         x = self.bn2(x)
-        x = F.leaky_relu(x, 0.2)
+        x = F.relu(x)
         
-        # Bloc 3: 8x8x64 → 16x16x32
-        x = self.deconv3(x)                 # (batch, 32, 16, 16)
+        # Bloc 3: 8x8x128 → 16x16x64
+        x = self.deconv3(x)                 # (batch, 64, 16, 16)
         x = self.bn3(x)
-        x = F.leaky_relu(x, 0.2)
+        x = F.relu(x)
         
-        # Bloc 4: 16x16x32 → 32x32x3
-        x = self.deconv4(x)                 # (batch, 3, 32, 32)
+        # Bloc 4: 16x16x64 → 32x32x32
+        x = self.deconv4(x)                 # (batch, 32, 32, 32)
+        x = self.bn4(x)
+        x = F.relu(x)
+        
+        # Couche finale: 32x32x32 → 32x32x3
+        x = self.final_conv(x)              # (batch, 3, 32, 32)
         x_recon = torch.sigmoid(x)          # Valeurs entre [0, 1]
         
         return x_recon
@@ -190,7 +199,8 @@ class Decoder(nn.Module):
 
 def vae_loss(x_recon, x_clean, mu, logvar, beta=1.0):
     """
-    Fonction de perte VAE pour le débruitage d'images
+    Fonction de perte VAE améliorée pour le débruitage d'images
+    Combine MSE + perte perceptuelle (L1) pour réduire le flou
     
     Args:
         x_recon (torch.Tensor): Image reconstruite par le décodeur (batch, C, H, W)
@@ -198,7 +208,6 @@ def vae_loss(x_recon, x_clean, mu, logvar, beta=1.0):
         mu (torch.Tensor): Moyenne de la distribution latente (batch, latent_dim)
         logvar (torch.Tensor): Log-variance de la distribution latente (batch, latent_dim)
         beta (float): Facteur de pondération de la KL divergence (défaut: 1.0)
-                     Utiliser beta < 1.0 au début de l'entraînement (KL annealing)
     
     Returns:
         total_loss (torch.Tensor): Perte totale (scalaire)
@@ -206,30 +215,19 @@ def vae_loss(x_recon, x_clean, mu, logvar, beta=1.0):
         kl_loss (torch.Tensor): KL divergence (scalaire)
         
     Notes:
-        - Reconstruction Loss (MSE): Mesure la différence entre l'image reconstruite 
-          et l'image PROPRE (pas l'image bruitée). Plus cette valeur est faible,
-          mieux le VAE débruite.
-          
-        - KL Divergence: Force la distribution latente q(z|x) à rester proche de 
-          la prior N(0,1). Cela régularise l'espace latent et permet une meilleure
-          généralisation.
-          
-          Formule: KL(q(z|x) || p(z)) = -0.5 * sum(1 + log(σ²) - μ² - σ²)
-          où σ² = exp(logvar)
-          
-        - Beta (β): Coefficient qui contrôle l'importance de la KL divergence.
-          * β = 0: Pas de régularisation (risque d'overfitting)
-          * β = 1: VAE standard
-          * β > 1: β-VAE (meilleure disentanglement)
-          * β croissant: KL annealing (commence petit, monte vers 1)
+        - MSE Loss: Mesure pixel-par-pixel (tend à produire du flou)
+        - L1 Loss: Préserve mieux les détails et contours
+        - Combinaison 50/50 pour équilibrer précision et netteté
+        - Beta réduit favorise la reconstruction au détriment de la régularisation
     """
-    # Reconstruction Loss (MSE)
-    # Comparer l'image reconstruite avec l'image PROPRE (pas bruitée)
-    recon_loss = F.mse_loss(x_recon, x_clean, reduction='sum')
+    # Reconstruction Loss combinée: MSE + L1 pour réduire le flou
+    mse_loss = F.mse_loss(x_recon, x_clean, reduction='sum')
+    l1_loss = F.l1_loss(x_recon, x_clean, reduction='sum')
     
-    # KL Divergence
-    # KL(q(z|x) || p(z)) où q(z|x) = N(mu, exp(logvar)) et p(z) = N(0, 1)
-    # Formule: -0.5 * sum(1 + log(σ²) - μ² - σ²)
+    # Combiner MSE et L1 (50/50) pour meilleure qualité visuelle
+    recon_loss = 0.5 * mse_loss + 0.5 * l1_loss
+    
+    # KL Divergence (régularisation de l'espace latent)
     kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     
     # Perte totale

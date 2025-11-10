@@ -25,7 +25,7 @@ def test_visualization():
     decoder = Decoder(latent_dim=latent_dim)
     
     try:
-        encoder, decoder, history = load_model(encoder, decoder, './code/vae_denoiser.pth', device)
+        encoder, decoder, history = load_model(encoder, decoder, './code/vae_denoiser_beta0.pth', device)
         print("✅ Modèle chargé avec succès")
     except FileNotFoundError:
         print("❌ Fichier './code/vae_denoiser.pth' introuvable")

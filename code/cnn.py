@@ -104,12 +104,12 @@ def main():
         encoder=encoder,
         decoder=decoder,
         x_train=x_train,
-        epochs=50,                      # Augmenté à 50 epochs
+        epochs=80,                      # Plus d'epochs pour convergence complète
         batch_size=128,                 # Taille des batchs
         learning_rate=1e-3,             # Taux d'apprentissage
         noise_type='gaussian',          # Type de bruit pour l'entraînement
         noise_params={'std': 25},       # Paramètres du bruit
-        beta=0.5,                       # Coefficient KL divergence réduit (était 1.0)
+        beta=0.01,                      # Beta très faible (quasi-autoencodeur) pour + de netteté
         device=device,
         validation_split=0.1,           # 10% pour validation
         verbose=True
