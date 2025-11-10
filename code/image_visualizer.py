@@ -209,6 +209,104 @@ class ImageVisualizer:
         print(f"✓ Résultats sauvegardés: '{save_path}'")
         plt.show()
     
+    @staticmethod
+    def visualize_vae_results(clean_images, noisy_images, denoised_images,
+                             labels, class_names, indices,
+                             noise_type='gaussian',
+                             calculate_mse_func=None,
+                             calculate_psnr_func=None,
+                             n_samples=5):
+        """
+        Visualise les résultats du VAE avec métriques MSE et PSNR
+        
+        Args:
+            clean_images: Images propres (N, H, W, C)
+            noisy_images: Images bruitées (N, H, W, C)
+            denoised_images: Images débruitées (N, H, W, C)
+            labels: Labels des images
+            class_names: Noms des classes
+            indices: Indices des images sélectionnées
+            noise_type: Type de bruit ('gaussian', 'salt_pepper', 'mixed', etc.)
+            calculate_mse_func: Fonction pour calculer le MSE
+            calculate_psnr_func: Fonction pour calculer le PSNR
+            n_samples: Nombre d'échantillons à afficher
+        """
+        # Dictionnaire pour les noms d'affichage des types de bruit
+        noise_display_names = {
+            'gaussian': 'Gaussien',
+            'salt_pepper': 'Salt & Pepper',
+            'speckle': 'Speckle',
+            'poisson': 'Poisson',
+            'uniform': 'Uniforme',
+            'mixed': 'Mixte'
+        }
+        noise_label = noise_display_names.get(noise_type, noise_type.capitalize())
+        
+        # Créer la figure
+        fig, axes = plt.subplots(n_samples, 3, figsize=(12, 4 * n_samples))
+        if n_samples == 1:
+            axes = axes[np.newaxis, :]
+        
+        for i in range(n_samples):
+            img_clean = clean_images[i].astype(np.uint8)
+            img_noisy = noisy_images[i].astype(np.uint8)
+            img_denoised = denoised_images[i].astype(np.uint8)
+            
+            # Calculer les métriques pour cette image
+            if calculate_mse_func and calculate_psnr_func:
+                mse_noisy = calculate_mse_func(img_noisy, img_clean)
+                psnr_noisy = calculate_psnr_func(img_noisy, img_clean)
+                mse_denoised = calculate_mse_func(img_denoised, img_clean)
+                psnr_denoised = calculate_psnr_func(img_denoised, img_clean)
+                improvement = psnr_denoised - psnr_noisy
+            else:
+                mse_noisy = mse_denoised = psnr_noisy = psnr_denoised = improvement = 0
+            
+            # Image bruitée
+            axes[i, 0].imshow(img_noisy)
+            axes[i, 0].axis('off')
+            if i == 0:
+                axes[i, 0].set_title(f'Image bruitée ({noise_label})', fontsize=12, fontweight='bold')
+            
+            # Afficher les métriques sous l'image
+            if calculate_mse_func and calculate_psnr_func:
+                metrics_text = f'MSE: {mse_noisy:.1f}\nPSNR: {psnr_noisy:.2f} dB'
+                axes[i, 0].text(0.5, -0.05, metrics_text, ha='center', va='top', 
+                               transform=axes[i, 0].transAxes, fontsize=9, 
+                               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+                        
+            # Image débruitée (reconstruite)
+            axes[i, 1].imshow(img_denoised)
+            axes[i, 1].axis('off')
+            if i == 0:
+                axes[i, 1].set_title('Image débruitée (VAE)', fontsize=12, fontweight='bold')
+            
+            # Afficher les métriques sous l'image avec amélioration
+            if calculate_mse_func and calculate_psnr_func:
+                color = 'green' if improvement > 0 else 'red'
+                metrics_text = f'MSE: {mse_denoised:.1f}\nPSNR: {psnr_denoised:.2f} dB'
+                if improvement > 0:
+                    metrics_text += f'\n(+{improvement:.2f} dB)'
+                else:
+                    metrics_text += f'\n({improvement:.2f} dB)'
+                axes[i, 1].text(0.5, -0.05, metrics_text, ha='center', va='top', 
+                               transform=axes[i, 1].transAxes, fontsize=9, color=color,
+                               bbox=dict(boxstyle='round', facecolor='lightgreen' if improvement > 0 else 'lightcoral', alpha=0.5))
+            
+            # Image propre (ground truth)
+            axes[i, 2].imshow(img_clean)
+            axes[i, 2].axis('off')
+            if i == 0:
+                axes[i, 2].set_title('Image propre (GT)', fontsize=12, fontweight='bold')
+            
+            # Afficher "Référence" sous l'image
+            axes[i, 2].text(0.5, -0.05, 'Référence', ha='center', va='top', 
+                           transform=axes[i, 2].transAxes, fontsize=9,
+                           bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+        
+        plt.tight_layout()
+        plt.show()
+    
     
 
 
@@ -219,3 +317,4 @@ if __name__ == "__main__":
     print("  - compare_clean_and_noisy()")
     print("  - demonstrate_noise_types()")
     print("  - compare_denoising_results()")
+    print("  - visualize_vae_results()")

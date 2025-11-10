@@ -4,6 +4,8 @@ import torch.optim as optim
 from load_cifar10 import CIFAR10Loader
 from image_visualizer import ImageVisualizer
 from utils import select_one_per_class, add_noise_to_images
+from vae_model import Encoder, Decoder
+from vae_train import train_vae, evaluate_vae, plot_training_history, save_model
 import numpy as np
 
 
@@ -73,21 +75,133 @@ def run_visualization_demo(loader, x_train, y_train, x_test=None, y_test=None):
 
 def main():
     """
-    Fonction principale - charge les données
+    Fonction principale - charge les données, entraîne et évalue le VAE
     """
+    # Charger les données
     loader, x_train, y_train, x_test, y_test = load_data()
-    return loader, x_train, y_train, x_test, y_test
+    
+    # ====================================================================
+    # INITIALISATION DU VAE
+    # ====================================================================
+    print("\n" + "=" * 60)
+    print("INITIALISATION DU VAE")
+    print("=" * 60)
+    
+    latent_dim = 128
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    encoder = Encoder(latent_dim=latent_dim)
+    decoder = Decoder(latent_dim=latent_dim)
+    
+    print(f"Encodeur initialisé (latent_dim={latent_dim})")
+    print(f"Décodeur initialisé (latent_dim={latent_dim})")
+    print(f"Device: {device}")
+    
+    # ====================================================================
+    # ÉTAPE 7 : ENTRAÎNEMENT DU VAE
+    # ====================================================================
+    history = train_vae(
+        encoder=encoder,
+        decoder=decoder,
+        x_train=x_train,
+        epochs=50,                      # Augmenté à 50 epochs
+        batch_size=128,                 # Taille des batchs
+        learning_rate=1e-3,             # Taux d'apprentissage
+        noise_type='gaussian',          # Type de bruit pour l'entraînement
+        noise_params={'std': 25},       # Paramètres du bruit
+        beta=0.5,                       # Coefficient KL divergence réduit (était 1.0)
+        device=device,
+        validation_split=0.1,           # 10% pour validation
+        verbose=True
+    )
+    
+    # Afficher l'historique d'entraînement
+    plot_training_history(history)
+    
+    # Sauvegarder le modèle
+    save_model(encoder, decoder, history, filepath='./code/vae_denoiser.pth')
+    
+    # ====================================================================
+    # ÉTAPE 8 : ÉVALUATION DU VAE
+    # ====================================================================
+    
+    # 1. Évaluation avec bruit Gaussien
+    print("\n" + "=" * 60)
+    print("ÉVALUATION 1/3 : Bruit Gaussien")
+    print("=" * 60)
+    metrics_gaussian = evaluate_vae(
+        encoder=encoder,
+        decoder=decoder,
+        x_test=x_test,
+        y_test=y_test,
+        class_names=loader.class_names,
+        noise_type='gaussian',
+        noise_params={'std': 25},
+        n_samples=5,
+        device=device,
+        verbose=True
+    )
+    
+    # 2. Évaluation avec bruit Salt & Pepper
+    print("\n" + "=" * 60)
+    print("ÉVALUATION 2/3 : Bruit Salt & Pepper")
+    print("=" * 60)
+    metrics_salt_pepper = evaluate_vae(
+        encoder=encoder,
+        decoder=decoder,
+        x_test=x_test,
+        y_test=y_test,
+        class_names=loader.class_names,
+        noise_type='salt_pepper',
+        noise_params={'salt_prob': 0.02, 'pepper_prob': 0.02},
+        n_samples=5,
+        device=device,
+        verbose=True
+    )
+    
+    # 3. Évaluation avec bruit Mixte
+    print("\n" + "=" * 60)
+    print("ÉVALUATION 3/3 : Bruit Mixte")
+    print("=" * 60)
+    metrics_mixed = evaluate_vae(
+        encoder=encoder,
+        decoder=decoder,
+        x_test=x_test,
+        y_test=y_test,
+        class_names=loader.class_names,
+        noise_type='mixed',
+        noise_params={'gaussian_std': 20, 'salt_prob': 0.01, 'pepper_prob': 0.01},
+        n_samples=5,
+        device=device,
+        verbose=True
+    )
+    
+    # ====================================================================
+    # RÉSUMÉ FINAL
+    # ====================================================================
+    print("\n" + "=" * 60)
+    print("RÉSUMÉ DES PERFORMANCES")
+    print("=" * 60)
+    print(f"\n{'Type de bruit':<20s} {'MSE avant':<12s} {'MSE après':<12s} {'PSNR avant':<12s} {'PSNR après':<12s}")
+    print("-" * 75)
+    print(f"{'Gaussien':<20s} {metrics_gaussian['mse_noisy_vs_clean']:<12.2f} {metrics_gaussian['mse_denoised_vs_clean']:<12.2f} {metrics_gaussian['psnr_noisy_vs_clean']:<12.2f} {metrics_gaussian['psnr_denoised_vs_clean']:<12.2f}")
+    print(f"{'Salt & Pepper':<20s} {metrics_salt_pepper['mse_noisy_vs_clean']:<12.2f} {metrics_salt_pepper['mse_denoised_vs_clean']:<12.2f} {metrics_salt_pepper['psnr_noisy_vs_clean']:<12.2f} {metrics_salt_pepper['psnr_denoised_vs_clean']:<12.2f}")
+    print(f"{'Mixte':<20s} {metrics_mixed['mse_noisy_vs_clean']:<12.2f} {metrics_mixed['mse_denoised_vs_clean']:<12.2f} {metrics_mixed['psnr_noisy_vs_clean']:<12.2f} {metrics_mixed['psnr_denoised_vs_clean']:<12.2f}")
+    print("-" * 75)
+    
+    return loader, x_train, y_train, x_test, y_test, encoder, decoder
 
 
 if __name__ == "__main__":
-    import sys
     
-    # Charger les données
-    loader, x_train, y_train, x_test, y_test = main()
-
+    # Lancer l'entraînement et l'évaluation complète du VAE
+    loader, x_train, y_train, x_test, y_test, encoder, decoder = main()
+    
     print("\n" + "=" * 60)
-    print("Lancement du test de la loss function")
+    print("PROGRAMME TERMINÉ ✔")
     print("=" * 60)
-    from test_vae import test_loss_function
-    test_loss_function(x_train, y_train, loader.class_names)
+    print("\nLe modèle VAE a été entraîné et évalué avec succès!")
+    print("Le modèle a été sauvegardé dans './code/vae_denoiser.pth'")
+    print("\nVous pouvez maintenant utiliser le débruiteur pour nettoyer vos images.")
+
 

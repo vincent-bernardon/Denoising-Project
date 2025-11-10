@@ -25,19 +25,21 @@ def select_one_per_class(labels, n_classes=10):
     return indices
 
 
-def add_noise_to_images(images, noise_type='gaussian', **noise_params):
+def add_noise_to_images(images, noise_type='gaussian', verbose=False, **noise_params):
     """
     Ajoute du bruit aux images
     
     Args:
         images: Array d'images (N, 32, 32, 3)
         noise_type: Type de bruit ('gaussian', 'salt_pepper', 'mixed', etc.)
+        verbose: Afficher les messages de progression (défaut: False)
         **noise_params: Paramètres du bruit
         
     Returns:
         Images bruitées
     """
-    print(f"\nAjout de bruit ({noise_type})...")
+    if verbose:
+        print(f"\nAjout de bruit ({noise_type})...")
     
     if noise_type == 'gaussian':
         noisy_images = NoiseGenerator.add_gaussian_noise(images, **noise_params)
@@ -54,7 +56,8 @@ def add_noise_to_images(images, noise_type='gaussian', **noise_params):
     else:
         raise ValueError(f"Type de bruit inconnu: {noise_type}")
     
-    print(f"✓ Bruit ajouté avec succès")
+    if verbose:
+        print(f"✓ Bruit ajouté avec succès")
     return noisy_images
 
 
@@ -62,4 +65,4 @@ if __name__ == "__main__":
     print("Module utils.py - Fonctions utilitaires")
     print("\nFonctions disponibles:")
     print("  - select_one_per_class(labels, n_classes=10)")
-    print("  - add_noise_to_images(images, noise_type='gaussian', **noise_params)")
+    print("  - add_noise_to_images(images, noise_type='gaussian', verbose=False, **noise_params)")
