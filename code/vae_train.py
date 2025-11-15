@@ -399,31 +399,50 @@ def plot_training_history(history):
         print("Aucun historique disponible.")
         return
     
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    axes = axes.ravel()
+
+    has_val = bool(history.get('val_loss')) and len(history['val_loss']) == len(history['train_loss'])
+
     # Perte totale (train vs val)
     axes[0].plot(history['epochs'], history['train_loss'], 'b-', linewidth=2, label='Train')
-    axes[0].plot(history['epochs'], history['val_loss'], 'r--', linewidth=2, label='Validation')
+    if has_val:
+        axes[0].plot(history['epochs'], history['val_loss'], 'r--', linewidth=2, label='Validation')
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Perte totale')
     axes[0].set_title('Évolution de la perte totale')
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
-    
+
+    # Diagnostic de surapprentissage
+    if has_val:
+        gap = np.array(history['val_loss']) - np.array(history['train_loss'])
+        axes[1].plot(history['epochs'], gap, color='crimson', linewidth=2)
+        axes[1].fill_between(history['epochs'], gap, 0, color='crimson', alpha=0.2)
+        axes[1].axhline(0, color='black', linewidth=1, linestyle='--')
+        axes[1].set_title('Écart validation - train')
+        axes[1].set_ylabel('Δ Loss (val - train)')
+        axes[1].set_xlabel('Epoch')
+        axes[1].grid(True, alpha=0.3)
+    else:
+        axes[1].text(0.5, 0.5, "Pas de validation pour diagnostic",
+                     ha='center', va='center', fontsize=12, color='gray')
+        axes[1].set_axis_off()
+
     # Perte de reconstruction
-    axes[1].plot(history['epochs'], history['train_recon_loss'], 'g-', linewidth=2)
-    axes[1].set_xlabel('Epoch')
-    axes[1].set_ylabel('Perte de reconstruction')
-    axes[1].set_title('Évolution de la reconstruction loss')
-    axes[1].grid(True, alpha=0.3)
-    
-    # KL divergence
-    axes[2].plot(history['epochs'], history['train_kl_loss'], 'orange', linewidth=2)
+    axes[2].plot(history['epochs'], history['train_recon_loss'], 'g-', linewidth=2)
     axes[2].set_xlabel('Epoch')
-    axes[2].set_ylabel('KL divergence')
-    axes[2].set_title('Évolution de la KL divergence')
+    axes[2].set_ylabel('Perte de reconstruction')
+    axes[2].set_title('Évolution de la reconstruction loss')
     axes[2].grid(True, alpha=0.3)
-    
+
+    # KL divergence
+    axes[3].plot(history['epochs'], history['train_kl_loss'], 'orange', linewidth=2)
+    axes[3].set_xlabel('Epoch')
+    axes[3].set_ylabel('KL divergence')
+    axes[3].set_title('Évolution de la KL divergence')
+    axes[3].grid(True, alpha=0.3)
+
     plt.tight_layout()
     plt.show()
 
