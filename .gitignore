@@ -1,7 +1,5 @@
 code/test_pytorch.py
-code/cifar10_samples.png
-code/cifar10_*.png
-code/noise_types_demo.png
+code/*.png
 code/__pycache__/*
 code/stl10/stl10_binary
 code/stl10/stl10_binary.tar.gz
