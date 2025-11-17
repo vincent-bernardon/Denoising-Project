@@ -2,6 +2,7 @@
 Entraînement du U-Net avec les 3 types de bruit mélangés aléatoirement
 (comme le VAE beta0 qui s'entraîne sur plusieurs types de bruit)
 UN SEUL MODÈLE pour les 3 bruits
+Support CIFAR-10 (32x32) et STL-10 (96x96 découpé en patches 32x32 avec superposition)
 """
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,9 +13,58 @@ from torch.utils.data import DataLoader, random_split, Dataset
 from torch import nn
 import torch.nn.functional as F
 import torch.optim as optim
+import argparse
 
 from unet_model import UNet
 from utils import add_noise_to_images
+
+
+class PatchDataset(Dataset):
+    """
+    Dataset qui découpe les images en patches 32x32 avec superposition
+    Pour STL-10 (96x96) -> avec stride=16, on obtient 25 patches qui se superposent
+    """
+    def __init__(self, base_dataset, patch_size=32, stride=16):
+        self.base_dataset = base_dataset
+        self.patch_size = patch_size
+        self.stride = stride
+        
+        # Calculer le nombre de patches par image
+        sample_img, _ = base_dataset[0]
+        _, h, w = sample_img.shape
+        
+        self.n_patches_h = (h - patch_size) // stride + 1
+        self.n_patches_w = (w - patch_size) // stride + 1
+        self.patches_per_image = self.n_patches_h * self.n_patches_w
+        
+        print(f"  → Image size: {h}x{w}")
+        print(f"  → Patch size: {patch_size}x{patch_size}, stride: {stride}")
+        print(f"  → Patches per image: {self.patches_per_image} ({self.n_patches_h}x{self.n_patches_w})")
+        print(f"  → Overlap: {patch_size - stride} pixels")
+        print(f"  → Total patches: {len(base_dataset) * self.patches_per_image}")
+    
+    def __len__(self):
+        return len(self.base_dataset) * self.patches_per_image
+    
+    def __getitem__(self, idx):
+        # Trouver l'image et le patch correspondants
+        img_idx = idx // self.patches_per_image
+        patch_idx = idx % self.patches_per_image
+        
+        # Récupérer l'image complète
+        img_tensor, label = self.base_dataset[img_idx]
+        
+        # Calculer les coordonnées du patch
+        patch_row = patch_idx // self.n_patches_w
+        patch_col = patch_idx % self.n_patches_w
+        
+        top = patch_row * self.stride
+        left = patch_col * self.stride
+        
+        # Extraire le patch
+        patch = img_tensor[:, top:top+self.patch_size, left:left+self.patch_size]
+        
+        return patch, label
 
 
 class MultiNoisyDataset(Dataset):
@@ -97,7 +147,11 @@ def plot_results_multi_noise(model, base_test_dataset, device, noise_configs, n=
     Affiche les résultats pour les 3 types de bruit
     3 blocs de 3 lignes (original, noisy, denoised) × 10 classes
     """
-    targets = np.array(base_test_dataset.targets)
+    if hasattr(base_test_dataset, 'targets'):
+        targets = np.array(base_test_dataset.targets)
+    else:
+        targets = np.array(base_test_dataset.labels)
+    
     t_idx = {i: np.where(targets == i)[0][0] for i in range(n)}
     
     model.eval()
@@ -155,17 +209,106 @@ def plot_results_multi_noise(model, base_test_dataset, device, noise_configs, n=
         plt.show()
 
 
+def load_dataset(dataset_name, data_dir, use_patches=True, patch_stride=16):
+    """
+    Charge le dataset spécifié
+    
+    Args:
+        dataset_name: 'cifar10' ou 'stl10'
+        data_dir: Répertoire des données
+        use_patches: Si True, découpe STL-10 en patches 32x32
+        patch_stride: Stride pour le découpage (16 = superposition de 50%)
+    
+    Returns:
+        train_dataset, test_dataset, image_size, num_classes
+    """
+    if dataset_name == 'cifar10':
+        print("\n✓ Chargement de CIFAR-10 (32x32)...")
+        train_dataset = torchvision.datasets.CIFAR10(
+            data_dir, train=True, download=True,
+            transform=transforms.ToTensor()
+        )
+        test_dataset = torchvision.datasets.CIFAR10(
+            data_dir, train=False, download=True,
+            transform=transforms.ToTensor()
+        )
+        return train_dataset, test_dataset, 32, 10
+    
+    elif dataset_name == 'stl10':
+        print("\n✓ Chargement de STL-10 (96x96)...")
+        train_dataset = torchvision.datasets.STL10(
+            data_dir, split='train', download=True,
+            transform=transforms.ToTensor()
+        )
+        test_dataset = torchvision.datasets.STL10(
+            data_dir, split='test', download=True,
+            transform=transforms.ToTensor()
+        )
+        
+        if use_patches:
+            print(f"✓ Découpage en patches 32x32 avec superposition...")
+            train_dataset = PatchDataset(train_dataset, patch_size=32, stride=patch_stride)
+            test_dataset = PatchDataset(test_dataset, patch_size=32, stride=patch_stride)
+            return train_dataset, test_dataset, 32, 10
+        else:
+            print("⚠️  Mode sans patches (redimensionnement à 64x64)")
+            # Fallback: redimensionner à 64x64
+            transform_stl = transforms.Compose([
+                transforms.Resize(64),
+                transforms.ToTensor()
+            ])
+            train_dataset = torchvision.datasets.STL10(
+                data_dir, split='train', download=True,
+                transform=transform_stl
+            )
+            test_dataset = torchvision.datasets.STL10(
+                data_dir, split='test', download=True,
+                transform=transform_stl
+            )
+            return train_dataset, test_dataset, 64, 10
+    
+    else:
+        raise ValueError(f"Dataset non supporté: {dataset_name}. Utilisez 'cifar10' ou 'stl10'")
+
+
 if __name__ == "__main__":
+    # Parsing des arguments
+    parser = argparse.ArgumentParser(description='Entraînement U-Net Multi-Noise')
+    parser.add_argument('--dataset', type=str, default='cifar10', 
+                        choices=['cifar10', 'stl10'],
+                        help='Dataset à utiliser (cifar10 ou stl10)')
+    parser.add_argument('--epochs', type=int, default=30,
+                        help='Nombre d\'époques (défaut: 30)')
+    parser.add_argument('--batch-size', type=int, default=64,
+                        help='Taille du batch (défaut: 64)')
+    parser.add_argument('--lr', type=float, default=0.001,
+                        help='Learning rate (défaut: 0.001)')
+    parser.add_argument('--no-patches', action='store_true',
+                        help='Désactiver le découpage en patches pour STL-10 (redimensionne à 64x64 à la place)')
+    parser.add_argument('--patch-stride', type=int, default=16,
+                        help='Stride pour le découpage en patches (défaut: 16 = overlap de 50%%)')
+    
+    args = parser.parse_args()
+    
     print("=" * 80)
     print("ENTRAÎNEMENT U-NET AVEC MULTI-BRUIT MÉLANGÉ")
     print("UN SEUL MODÈLE pour les 3 types de bruit")
     print("=" * 80)
     
+    print(f"\n📊 Configuration:")
+    print(f"  - Dataset:    {args.dataset.upper()}")
+    print(f"  - Epochs:     {args.epochs}")
+    print(f"  - Batch size: {args.batch_size}")
+    print(f"  - LR:         {args.lr}")
+    if args.dataset == 'stl10':
+        if args.no_patches:
+            print(f"  - Patches:    Désactivé (resize 64x64)")
+        else:
+            overlap_percent = (32 - args.patch_stride) / 32 * 100
+            print(f"  - Patches:    32x32 avec stride={args.patch_stride} (overlap {overlap_percent:.0f}%)")
+    
     # Configuration
-    data_dir = 'dataset'
-    batch_size = 64
-    lr = 0.001
-    num_epochs = 30
+    data_dir = './code/dataset'
     
     # DÉFINIR LES 3 TYPES DE BRUIT (comme dans test_beta_zero.py)
     noise_configs = [
@@ -194,19 +337,13 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\nDevice: {device}")
     
-    # Chargement des données de base
-    print("\nChargement de CIFAR-10...")
-    base_train_dataset = torchvision.datasets.CIFAR10(
-        data_dir, train=True, download=True,
-        transform=transforms.ToTensor()
-    )
-    base_test_dataset = torchvision.datasets.CIFAR10(
-        data_dir, train=False, download=True,
-        transform=transforms.ToTensor()
+    # Chargement du dataset
+    base_train_dataset, base_test_dataset, img_size, num_classes = load_dataset(
+        args.dataset, data_dir, use_patches=not args.no_patches, patch_stride=args.patch_stride
     )
     
     # Créer les datasets avec bruit aléatoire
-    print("Application des bruits aléatoires...")
+    print("\nApplication des bruits aléatoires...")
     train_dataset = MultiNoisyDataset(base_train_dataset, noise_configs)
     test_dataset = MultiNoisyDataset(base_test_dataset, noise_configs)
     
@@ -214,12 +351,13 @@ if __name__ == "__main__":
     m = len(train_dataset)
     train_data, val_data = random_split(train_dataset, [int(m-m*0.2), int(m*0.2)])
     
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=2)
-    valid_loader = DataLoader(val_data, batch_size=batch_size, num_workers=2)
+    train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=2)
+    valid_loader = DataLoader(val_data, batch_size=args.batch_size, num_workers=2)
     
-    print(f"✓ Train: {len(train_data)} images")
-    print(f"✓ Val:   {len(val_data)} images")
-    print(f"✓ Test:  {len(test_dataset)} images")
+    print(f"✓ Train: {len(train_data)} patches")
+    print(f"✓ Val:   {len(val_data)} patches")
+    print(f"✓ Test:  {len(test_dataset)} patches")
+    print(f"✓ Patch size: {img_size}x{img_size}")
     
     # Initialisation du modèle U-Net
     print("\nInitialisation du modèle U-Net...")
@@ -231,7 +369,7 @@ if __name__ == "__main__":
     print(f"✓ Nombre de paramètres: {total_params:,}")
     
     # Optimizer
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
     
     # Entraînement
     print("\n" + "=" * 80)
@@ -240,9 +378,9 @@ if __name__ == "__main__":
     
     history = {'train_loss': [], 'val_loss': []}
     best_val_loss = float('inf')
-    model_path = './code/unet_denoising_multinoise.pth'
+    model_path = f'./code/unet_denoising_{args.dataset}_multinoise.pth'
     
-    for epoch in range(num_epochs):
+    for epoch in range(args.epochs):
         train_loss = train_epoch(model, device, train_loader, optimizer)
         val_loss = test_epoch(model, device, valid_loader)
         
@@ -257,7 +395,7 @@ if __name__ == "__main__":
         else:
             marker = ""
         
-        print(f'EPOCH {epoch + 1:2d}/{num_epochs} - Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}{marker}')
+        print(f'EPOCH {epoch + 1:2d}/{args.epochs} - Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}{marker}')
     
     print("\n" + "=" * 80)
     print("ENTRAÎNEMENT TERMINÉ")
@@ -271,7 +409,18 @@ if __name__ == "__main__":
     # Affichage des résultats pour les 3 types de bruit
     print("\nAffichage des résultats sur le test set...")
     print("(3 graphiques, un par type de bruit)")
-    plot_results_multi_noise(model, base_test_dataset, device, noise_configs)
+    
+    # Pour la visualisation, on utilise le dataset de base (sans patches)
+    if args.dataset == 'stl10' and not args.no_patches:
+        print("⚠️  Visualisation sur images complètes 96x96 (non découpées)")
+        vis_test_dataset = torchvision.datasets.STL10(
+            data_dir, split='test', download=False,
+            transform=transforms.ToTensor()
+        )
+    else:
+        vis_test_dataset = base_test_dataset.base_dataset if hasattr(base_test_dataset, 'base_dataset') else base_test_dataset
+    
+    plot_results_multi_noise(model, vis_test_dataset, device, noise_configs, n=num_classes)
     
     # Plot de l'historique
     print("\nAffichage de l'historique d'entraînement...")
@@ -281,12 +430,13 @@ if __name__ == "__main__":
     plt.xlabel('Epoch', fontsize=12)
     plt.ylabel('MSE Loss', fontsize=12)
     plt.legend(fontsize=11)
-    plt.title('U-Net Training History - Multi-Noise', fontsize=14, fontweight='bold')
+    title_suffix = f" - Patches 32x32 (stride={args.patch_stride})" if args.dataset == 'stl10' and not args.no_patches else ""
+    plt.title(f'U-Net Training History - Multi-Noise ({args.dataset.upper()}){title_suffix}', fontsize=14, fontweight='bold')
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     
     # Sauvegarder le graphique
-    history_path = './code/unet_history_multinoise.png'
+    history_path = f'./code/unet_history_{args.dataset}_multinoise.png'
     plt.savefig(history_path, dpi=300, bbox_inches='tight')
     print(f"✓ Historique sauvegardé: {history_path}")
     
@@ -295,5 +445,5 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("TOUT EST TERMINÉ ✓")
     print("=" * 80)
-    print(f"\nPour évaluer ce modèle, modifiez unet_evaluate.py:")
-    print(f"  model_path = './code/unet_denoising_multinoise.pth'")
+    print(f"\nPour évaluer ce modèle:")
+    print(f"  python unet_evaluate.py --dataset {args.dataset}")
