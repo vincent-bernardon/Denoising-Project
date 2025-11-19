@@ -140,13 +140,16 @@ def add_noise_randomly(images, noise_configs, noise_probability=0.5):
                 **noise_config['params']
             )[0]
             
-            # Reconvertir en tensor
+            # Reconvertir en tensor sur le même device que l'entrée
             img_tensor = torch.FloatTensor(img_noisy).permute(2, 0, 1) / 255.0
             noisy_images.append(img_tensor)
         else:
-            noisy_images.append(images[i])
+            noisy_images.append(images[i].cpu())
     
-    return torch.stack(noisy_images), torch.tensor(is_noisy, dtype=torch.bool)
+    noisy_stack = torch.stack(noisy_images)
+    is_noisy_tensor = torch.tensor(is_noisy, dtype=torch.bool)
+    
+    return noisy_stack, is_noisy_tensor
 
 
 def train_gan_epoch(generator, discriminator, device, dataloader, 
