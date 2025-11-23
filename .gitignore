@@ -1,6 +1,6 @@
 code/test_pytorch.py
 code/*.png
-code/__pycache__/*
+code/__pycache__/*.pyc
 code/stl10/stl10_binary
 code/stl10/stl10_binary.tar.gz
 code/unet_denoising_multinoise.pth
@@ -9,5 +9,6 @@ code/unet_denoising_cifar10_multinoise.pth
 code/unet_denoising_stl10_multinoise.pth
 code/dataset*
 code/code/*
+code/*.pth
 
 brouillon/*
