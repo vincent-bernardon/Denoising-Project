@@ -10,5 +10,5 @@ code/unet_denoising_stl10_multinoise.pth
 code/dataset*
 code/code/*
 code/*.pth
-
+dataset/*
 brouillon/*
