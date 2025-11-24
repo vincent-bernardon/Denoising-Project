@@ -176,9 +176,9 @@ def train_gan_epoch(generator, discriminator, device, dataloader,
         batch_size = images.size(0)
         images = images.to(device)
         
-        # Labels
-        real_labels = torch.ones(batch_size, 1).to(device)
-        fake_labels = torch.zeros(batch_size, 1).to(device)
+        # Labels avec label smoothing pour stabiliser l'entraînement
+        real_labels = torch.ones(batch_size, 1).to(device) * 0.9   # 0.9 au lieu de 1.0
+        fake_labels = torch.zeros(batch_size, 1).to(device) + 0.1  # 0.1 au lieu de 0.0
         
         # Ajouter du bruit aléatoirement
         noisy_images, is_noisy = add_noise_randomly(images, noise_configs, noise_probability)
@@ -255,6 +255,8 @@ def validate_gan(generator, discriminator, device, dataloader, noise_configs,
     
     g_losses = []
     d_losses = []
+    d_real_accs = []
+    d_fake_accs = []
     psnrs = []
     
     pbar = tqdm(dataloader, desc=f'Epoch {epoch+1:2d} [Val]', leave=False, ncols=120)
@@ -290,19 +292,29 @@ def validate_gan(generator, discriminator, device, dataloader, noise_configs,
             mse = F.mse_loss(denoised_images, images)
             psnr = 10 * torch.log10(1 / (mse + 1e-10))
             
+            # Métriques
+            d_real_acc = (real_output > 0.5).float().mean().item()
+            d_fake_acc = (fake_output < 0.5).float().mean().item()
+            
             g_losses.append(g_loss.item())
             d_losses.append(d_loss.item())
+            d_real_accs.append(d_real_acc)
+            d_fake_accs.append(d_fake_acc)
             psnrs.append(psnr.item())
             
             pbar.set_postfix({
                 'G': f'{g_loss.item():.3f}',
                 'D': f'{d_loss.item():.3f}',
+                'D_real': f'{d_real_acc:.2f}',
+                'D_fake': f'{d_fake_acc:.2f}',
                 'PSNR': f'{psnr.item():.1f}'
             })
     
     return {
         'g_loss': np.mean(g_losses),
         'd_loss': np.mean(d_losses),
+        'd_real_acc': np.mean(d_real_accs),
+        'd_fake_acc': np.mean(d_fake_accs),
         'psnr': np.mean(psnrs)
     }
 
@@ -515,15 +527,18 @@ if __name__ == "__main__":
     print("\nLégende:")
     print("  - G: Perte générateur (adversariale + reconstruction)")
     print("  - D: Perte discriminateur")
-    print("  - D_real: Précision sur vraies images")
-    print("  - D_fake: Précision sur images débruitées")
+    print("  - D_real: Précision discrimination vraies images (target: 0.7-0.8)")
+    print("  - D_fake: Précision discrimination images débruitées (target: 0.5-0.6)")
     print("  - PSNR: Peak Signal-to-Noise Ratio (dB, plus haut = meilleur)")
-    print()
+    print("\n⚠️  Équilibre idéal: D_real ≈ 0.75, D_fake ≈ 0.55")
+    print("   Si D_real et D_fake > 0.8 → Discriminateur trop fort")
+    print("   Si D_real et D_fake < 0.4 → Générateur trop fort\n")
     
     history = {
         'train_g_loss': [], 'train_d_loss': [],
         'train_d_real_acc': [], 'train_d_fake_acc': [],
         'val_g_loss': [], 'val_d_loss': [],
+        'val_d_real_acc': [], 'val_d_fake_acc': [],
         'val_psnr': []
     }
     
@@ -554,6 +569,8 @@ if __name__ == "__main__":
         history['train_d_fake_acc'].append(train_metrics['d_fake_acc'])
         history['val_g_loss'].append(val_metrics['g_loss'])
         history['val_d_loss'].append(val_metrics['d_loss'])
+        history['val_d_real_acc'].append(val_metrics['d_real_acc'])
+        history['val_d_fake_acc'].append(val_metrics['d_fake_acc'])
         history['val_psnr'].append(val_metrics['psnr'])
         
         # Sauvegarder meilleur modèle
@@ -564,10 +581,17 @@ if __name__ == "__main__":
         else:
             marker = ""
         
+        # Affichage détaillé avec D_real et D_fake
         print(f"EPOCH {epoch+1:2d}/{args.epochs} | "
               f"Train G:{train_metrics['g_loss']:6.3f} D:{train_metrics['d_loss']:6.3f} | "
-              f"Val G:{val_metrics['g_loss']:6.3f} D:{val_metrics['d_loss']:6.3f} | "
-              f"PSNR:{val_metrics['psnr']:5.2f}dB{marker}")
+              f"D_real:{train_metrics['d_real_acc']:.2f} D_fake:{train_metrics['d_fake_acc']:.2f} | "
+              f"Val PSNR:{val_metrics['psnr']:5.2f}dB{marker}")
+        
+        # Warning si déséquilibre
+        if train_metrics['d_real_acc'] > 0.85 and train_metrics['d_fake_acc'] > 0.85:
+            print(f"  ⚠️  Discriminateur trop fort ! Considérez --d-lr plus faible ou --lambda-pixel plus élevé")
+        elif train_metrics['d_real_acc'] < 0.4 and train_metrics['d_fake_acc'] < 0.4:
+            print(f"  ⚠️  Générateur domine ! Considérez --g-lr plus faible")
     
     print("\n" + "=" * 80)
     print("ENTRAÎNEMENT TERMINÉ ✓")
@@ -603,15 +627,20 @@ if __name__ == "__main__":
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
     
-    # Précision discriminateur
-    axes[1, 0].plot(history['train_d_real_acc'], label='Real Acc', marker='o', markersize=3)
-    axes[1, 0].plot(history['train_d_fake_acc'], label='Fake Acc', marker='s', markersize=3)
+    # Précision discriminateur (Train + Val)
+    axes[1, 0].plot(history['train_d_real_acc'], label='Train D_real', marker='o', markersize=3, color='blue')
+    axes[1, 0].plot(history['train_d_fake_acc'], label='Train D_fake', marker='s', markersize=3, color='orange')
+    axes[1, 0].plot(history['val_d_real_acc'], label='Val D_real', marker='^', markersize=3, color='cyan', linestyle='--')
+    axes[1, 0].plot(history['val_d_fake_acc'], label='Val D_fake', marker='v', markersize=3, color='red', linestyle='--')
+    axes[1, 0].axhline(y=0.5, color='gray', linestyle=':', alpha=0.5, label='Random (0.5)')
+    axes[1, 0].axhspan(0.7, 0.8, alpha=0.1, color='green', label='Target D_real')
+    axes[1, 0].axhspan(0.5, 0.6, alpha=0.1, color='yellow', label='Target D_fake')
     axes[1, 0].set_xlabel('Epoch')
     axes[1, 0].set_ylabel('Accuracy')
-    axes[1, 0].set_title('Discriminator Accuracy (Train)')
-    axes[1, 0].legend()
+    axes[1, 0].set_title('Discriminator Accuracy (Train & Val)')
+    axes[1, 0].legend(loc='best', fontsize=8)
     axes[1, 0].grid(True, alpha=0.3)
-    axes[1, 0].axhline(y=0.5, color='r', linestyle='--', alpha=0.5, label='Random')
+    axes[1, 0].set_ylim([0, 1])
     
     # PSNR
     axes[1, 1].plot(history['val_psnr'], label='Val PSNR', marker='o', markersize=3, color='green')
