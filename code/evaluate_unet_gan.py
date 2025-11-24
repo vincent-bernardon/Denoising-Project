@@ -61,7 +61,7 @@ def calculate_mse(img1, img2):
 
 
 def evaluate_models(unet_model, gan_model, x_data, 
-                    noise_type, noise_params, device, n_samples=100):
+                    noise_type, noise_params, device, n_samples=100, lpips_model=None):
     """
     Évalue les deux modèles sur le même ensemble d'images bruitées
     
@@ -127,6 +127,29 @@ def evaluate_models(unet_model, gan_model, x_data,
         mse_unet.append(calculate_mse(x_unet_denoised[i], x_samples[i]))
         mse_gan.append(calculate_mse(x_gan_denoised[i], x_samples[i]))
     
+    # LPIPS
+    lpips_noisy = []
+    lpips_unet = []
+    lpips_gan = []
+    if lpips_model is not None:
+        import torchvision.transforms as T
+        def prep_for_lpips(img_arr):
+            pil = T.ToPILImage()(img_arr.astype(np.uint8))
+            proc = T.Compose([
+                T.Resize((224, 224)),
+                T.ToTensor(),
+                T.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
+            ])
+            return proc(pil).unsqueeze(0).to(device)
+        for i in range(len(x_samples)):
+            gt = prep_for_lpips(x_samples[i])
+            noisy = prep_for_lpips(x_noisy[i])
+            unet = prep_for_lpips(x_unet_denoised[i])
+            gan = prep_for_lpips(x_gan_denoised[i])
+            with torch.no_grad():
+                lpips_noisy.append(float(lpips_model(gt, noisy).cpu().item()))
+                lpips_unet.append(float(lpips_model(gt, unet).cpu().item()))
+                lpips_gan.append(float(lpips_model(gt, gan).cpu().item()))
     return {
         'psnr_noisy': np.mean(psnr_noisy),
         'psnr_unet': np.mean(psnr_unet),
@@ -134,7 +157,10 @@ def evaluate_models(unet_model, gan_model, x_data,
         'mse_noisy': np.mean(mse_noisy),
         'mse_unet': np.mean(mse_unet),
         'mse_gan': np.mean(mse_gan),
-        'n_samples': len(x_samples)
+        'n_samples': len(x_samples),
+        'lpips_noisy': np.mean(lpips_noisy) if lpips_noisy else None,
+        'lpips_unet': np.mean(lpips_unet) if lpips_unet else None,
+        'lpips_gan': np.mean(lpips_gan) if lpips_gan else None
     }
 
 
@@ -153,13 +179,18 @@ def plot_comparison(results, dataset_name, save_path=None):
     psnr_noisy = [r['metrics']['psnr_noisy'] for r in results]
     psnr_unet = [r['metrics']['psnr_unet'] for r in results]
     psnr_gan = [r['metrics']['psnr_gan'] for r in results]
-    
+
     mse_noisy = [r['metrics']['mse_noisy'] for r in results]
     mse_unet = [r['metrics']['mse_unet'] for r in results]
     mse_gan = [r['metrics']['mse_gan'] for r in results]
-    
-    # Créer la figure
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
+
+    # LPIPS (si présent)
+    lpips_noisy = [r['metrics'].get('lpips_noisy', None) for r in results]
+    lpips_unet = [r['metrics'].get('lpips_unet', None) for r in results]
+    lpips_gan = [r['metrics'].get('lpips_gan', None) for r in results]
+
+    # Créer la figure avec 3 graphiques
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(27, 6))
     fig.suptitle(f'Comparaison U-Net vs U-Net+GAN - {dataset_name.upper()}', 
                  fontsize=16, fontweight='bold')
     
@@ -174,16 +205,14 @@ def plot_comparison(results, dataset_name, save_path=None):
                     color='#3498db', alpha=0.85, edgecolor='black', linewidth=1.5)
     bars3 = ax1.bar(x + width, psnr_gan, width, label='U-Net+GAN débruité', 
                     color='#2ecc71', alpha=0.85, edgecolor='black', linewidth=1.5)
-    
-    # Ajouter les valeurs sur les barres
+
     for bars in [bars1, bars2, bars3]:
         for bar in bars:
             height = bar.get_height()
             ax1.text(bar.get_x() + bar.get_width()/2., height,
                     f'{height:.1f}',
                     ha='center', va='bottom', fontsize=10, fontweight='bold')
-    
-    # Configuration PSNR
+
     ax1.set_xlabel('Type de bruit', fontsize=13, fontweight='bold')
     ax1.set_ylabel('PSNR (dB)', fontsize=13, fontweight='bold')
     ax1.set_title('PSNR moyen : Comparaison des méthodes', fontsize=14, fontweight='bold')
@@ -191,10 +220,10 @@ def plot_comparison(results, dataset_name, save_path=None):
     ax1.set_xticklabels(noise_types, fontsize=11)
     ax1.legend(fontsize=11, loc='upper right')
     ax1.grid(axis='y', alpha=0.3, linestyle='--', linewidth=1)
-    
+
     all_psnr = psnr_noisy + psnr_unet + psnr_gan
     ax1.set_ylim(bottom=min(all_psnr) * 0.92, top=max(all_psnr) * 1.08)
-    
+
     # ========== GRAPHIQUE 2 : MSE ==========
     bars4 = ax2.bar(x - width, mse_noisy, width, label='Images bruitées', 
                     color='#e74c3c', alpha=0.85, edgecolor='black', linewidth=1.5)
@@ -202,16 +231,14 @@ def plot_comparison(results, dataset_name, save_path=None):
                     color='#3498db', alpha=0.85, edgecolor='black', linewidth=1.5)
     bars6 = ax2.bar(x + width, mse_gan, width, label='U-Net+GAN débruité', 
                     color='#2ecc71', alpha=0.85, edgecolor='black', linewidth=1.5)
-    
-    # Ajouter les valeurs sur les barres
+
     for bars in [bars4, bars5, bars6]:
         for bar in bars:
             height = bar.get_height()
             ax2.text(bar.get_x() + bar.get_width()/2., height,
                     f'{height:.1f}',
                     ha='center', va='bottom', fontsize=9, fontweight='bold')
-    
-    # Configuration MSE
+
     ax2.set_xlabel('Type de bruit', fontsize=13, fontweight='bold')
     ax2.set_ylabel('MSE', fontsize=13, fontweight='bold')
     ax2.set_title('MSE moyen : Comparaison des méthodes', fontsize=14, fontweight='bold')
@@ -219,17 +246,48 @@ def plot_comparison(results, dataset_name, save_path=None):
     ax2.set_xticklabels(noise_types, fontsize=11)
     ax2.legend(fontsize=11, loc='upper right')
     ax2.grid(axis='y', alpha=0.3, linestyle='--', linewidth=1)
-    
+
     all_mse = mse_noisy + mse_unet + mse_gan
     ax2.set_ylim(bottom=0, top=max(all_mse) * 1.15)
-    
+
+    # ========== GRAPHIQUE 3 : LPIPS ==========
+    # Afficher le graphique LPIPS seulement si les valeurs existent
+    if any(lpips_noisy) or any(lpips_unet) or any(lpips_gan):
+        bars7 = ax3.bar(x - width, lpips_noisy, width, label='Images bruitées', 
+                        color='#e74c3c', alpha=0.85, edgecolor='black', linewidth=1.5)
+        bars8 = ax3.bar(x, lpips_unet, width, label='U-Net débruité', 
+                        color='#3498db', alpha=0.85, edgecolor='black', linewidth=1.5)
+        bars9 = ax3.bar(x + width, lpips_gan, width, label='U-Net+GAN débruité', 
+                        color='#2ecc71', alpha=0.85, edgecolor='black', linewidth=1.5)
+
+        for bars in [bars7, bars8, bars9]:
+            for bar in bars:
+                height = bar.get_height()
+                ax3.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{height:.3f}',
+                        ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+        ax3.set_xlabel('Type de bruit', fontsize=13, fontweight='bold')
+        ax3.set_ylabel('LPIPS', fontsize=13, fontweight='bold')
+        ax3.set_title('LPIPS moyen : Comparaison des méthodes', fontsize=14, fontweight='bold')
+        ax3.set_xticks(x)
+        ax3.set_xticklabels(noise_types, fontsize=11)
+        ax3.legend(fontsize=11, loc='upper right')
+        ax3.grid(axis='y', alpha=0.3, linestyle='--', linewidth=1)
+        all_lpips = [v for v in lpips_noisy + lpips_unet + lpips_gan if v is not None]
+        if all_lpips:
+            ax3.set_ylim(bottom=0, top=max(all_lpips) * 1.15)
+    else:
+        ax3.axis('off')
+        ax3.set_title('LPIPS non disponible', fontsize=14, fontweight='bold')
+
     plt.tight_layout()
-    
+
     # Sauvegarder
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"\n✓ Graphique sauvegardé: {save_path}")
-    
+
     plt.show()
 
 
@@ -244,6 +302,8 @@ def main():
                         help='Chemin vers le modèle U-Net (auto-détecté si non spécifié)')
     parser.add_argument('--gan-model', type=str, default=None,
                         help='Chemin vers le modèle U-Net+GAN (auto-détecté si non spécifié)')
+    parser.add_argument('--compute-lpips', action='store_true', help='Calculer LPIPS (perceptual) entre GT et outputs')
+    parser.add_argument('--lpips-net', type=str, default='alex', choices=['alex','vgg','squeeze'], help='Backbone pour LPIPS (défaut: alex)')
     
     args = parser.parse_args()
     
@@ -330,32 +390,44 @@ def main():
          'params': {'gaussian_std': 20, 'salt_prob': 0.01, 'pepper_prob': 0.01}}
     ]
     
+    # Charger LPIPS si demandé
+    lpips_model = None
+    if args.compute_lpips:
+        try:
+            import lpips
+            print(f"\nChargement LPIPS (net={args.lpips_net})...")
+            lpips_model = lpips.LPIPS(net=args.lpips_net).to(device)
+        except Exception as e:
+            print(f"\n⚠️  Erreur lors du chargement de LPIPS: {e}")
+            lpips_model = None
+
     # Évaluer pour chaque type de bruit
     results = []
-    
+
     print(f"\n{'='*80}")
     print("ÉVALUATION DES MODÈLES")
     print(f"{'='*80}")
-    
+
     for config in noise_configs:
         print(f"\n⏳ {config['name']}... ", end='', flush=True)
-        
         metrics = evaluate_models(
             unet_model, gan_model,
             x_test, config['type'], config['params'],
-            device, n_samples=args.n_samples
+            device, n_samples=args.n_samples,
+            lpips_model=lpips_model
         )
-        
         results.append({
             'name': config['name'],
             'metrics': metrics
         })
-        
         print("✓")
         print(f"   PSNR: Noisy={metrics['psnr_noisy']:.2f} | "
               f"U-Net={metrics['psnr_unet']:.2f} | U-Net+GAN={metrics['psnr_gan']:.2f}")
         print(f"   MSE:  Noisy={metrics['mse_noisy']:.4f} | "
               f"U-Net={metrics['mse_unet']:.4f} | U-Net+GAN={metrics['mse_gan']:.4f}")
+        if lpips_model is not None:
+            print(f"   LPIPS: Noisy={metrics['lpips_noisy']:.4f} | "
+                  f"U-Net={metrics['lpips_unet']:.4f} | U-Net+GAN={metrics['lpips_gan']:.4f}")
     
     # Afficher le tableau comparatif
     print(f"\n{'='*80}")

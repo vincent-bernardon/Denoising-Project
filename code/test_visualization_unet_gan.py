@@ -12,6 +12,15 @@ import argparse
 from unet_model import UNet
 from utils import add_noise_to_images
 from patch_utils import denoise_with_patches
+import torch.nn as nn
+from torchvision import models
+from torchvision import transforms as T
+import os
+import csv
+try:
+    import lpips
+except Exception:
+    lpips = None
 
 
 def load_unet_model(model_path, device):
@@ -84,6 +93,10 @@ def visualize_comparison(unet_model, gan_model, dataset, device, noise_config, n
     mse_noisy_list = []
     mse_unet_list = []
     mse_gan_list = []
+    lpips_noisy_list = []
+    lpips_unet_list = []
+    lpips_gan_list = []
+    # ...existing code...
     
     for i, img_idx in enumerate(selected_indices):
         # Récupérer l'image
@@ -128,6 +141,7 @@ def visualize_comparison(unet_model, gan_model, dataset, device, noise_config, n
         mse_noisy_list.append(mse_noisy)
         mse_unet_list.append(mse_unet)
         mse_gan_list.append(mse_gan)
+        # ...existing code...
         
         # Colonne 1: Image bruitée
         axes[i, 0].imshow(img_noisy.astype(np.uint8))
@@ -194,6 +208,39 @@ def visualize_comparison(unet_model, gan_model, dataset, device, noise_config, n
         axes[i, 3].text(0.5, -0.05, 'Référence', ha='center', va='top', 
                        transform=axes[i, 3].transAxes, fontsize=9,
                        bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+
+        # LPIPS (si chargé)
+        if hasattr(visualize_comparison, 'lpips_fn') and visualize_comparison.lpips_fn is not None:
+            try:
+                def prep_for_lpips(img_arr):
+                    # img_arr: HWC uint8 0-255
+                    pil = T.ToPILImage()(img_arr.astype(np.uint8))
+                    proc = T.Compose([
+                        T.Resize((224, 224)),
+                        T.ToTensor(),
+                        T.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5]) # scale to [-1,1]
+                    ])
+                    return proc(pil).unsqueeze(0).to(device)
+
+                gt_in_lp = prep_for_lpips(img_clean)
+                noisy_in_lp = prep_for_lpips(img_noisy)
+                unet_in_lp = prep_for_lpips(img_unet_np)
+                gan_in_lp = prep_for_lpips(img_gan_np)
+
+                with torch.no_grad():
+                    lp_noisy = float(visualize_comparison.lpips_fn(gt_in_lp, noisy_in_lp).cpu().item())
+                    lp_unet = float(visualize_comparison.lpips_fn(gt_in_lp, unet_in_lp).cpu().item())
+                    lp_gan = float(visualize_comparison.lpips_fn(gt_in_lp, gan_in_lp).cpu().item())
+
+                lpips_noisy_list.append(lp_noisy)
+                lpips_unet_list.append(lp_unet)
+                lpips_gan_list.append(lp_gan)
+
+                axes[i, 0].text(0.5, -0.28, f'LPIPS: {lp_noisy:.3f}', ha='center', va='top', transform=axes[i, 0].transAxes, fontsize=9, bbox=dict(facecolor='w', alpha=0.5))
+                axes[i, 1].text(0.5, -0.28, f'LPIPS: {lp_unet:.3f}', ha='center', va='top', transform=axes[i, 1].transAxes, fontsize=9, bbox=dict(facecolor='w', alpha=0.5))
+                axes[i, 2].text(0.5, -0.28, f'LPIPS: {lp_gan:.3f}', ha='center', va='top', transform=axes[i, 2].transAxes, fontsize=9, bbox=dict(facecolor='w', alpha=0.5))
+            except Exception as e:
+                print(f"⚠️  Erreur LPIPS: {e}")
     
     plt.tight_layout()
     plt.show()
@@ -222,6 +269,151 @@ def visualize_comparison(unet_model, gan_model, dataset, device, noise_config, n
     if abs(gan_vs_unet) > 0.01:
         symbol = '+' if gan_vs_unet > 0 else ''
         print(f"  U-Net+GAN vs U-Net:     {symbol}{gan_vs_unet:.2f} dB")
+    # Ajout LPIPS
+    if len(lpips_noisy_list) > 0:
+        avg_lpips_noisy = np.mean(lpips_noisy_list)
+        avg_lpips_unet = np.mean(lpips_unet_list)
+        avg_lpips_gan = np.mean(lpips_gan_list)
+        print(f"  LPIPS moyen (noisy):    {avg_lpips_noisy:.4f}")
+        print(f"  LPIPS moyen (U-Net):    {avg_lpips_unet:.4f}")
+        print(f"  LPIPS moyen (U-Net+GAN):{avg_lpips_gan:.4f}")
+
+    # ...existing code...
+
+
+def benchmark_comparison(unet_model, gan_model, dataset, device, noise_config, max_samples=100, dataset_name='stl10', nima_model=None, lpips_model=None, out_csv=None):
+    """Compute metrics across up to max_samples images and optionally save CSV.
+    Returns a summary dict with average metrics.
+    """
+    unet_model.eval()
+    gan_model.eval()
+
+    n = min(max_samples, len(dataset))
+    indices = np.random.choice(len(dataset), size=n, replace=False)
+
+    rows = []
+    psnr_noisy_list = []
+    psnr_unet_list = []
+    psnr_gan_list = []
+    mse_noisy_list = []
+    mse_unet_list = []
+    mse_gan_list = []
+    # ...existing code...
+    lpips_noisy_list = []
+    lpips_unet_list = []
+    lpips_gan_list = []
+
+    # ...existing code...
+
+    def prep_for_lpips_arr(img_arr):
+        pil_t = T.ToPILImage()(img_arr.astype(np.uint8))
+        proc = T.Compose([
+            T.Resize((224, 224)),
+            T.ToTensor(),
+            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        ])
+        return proc(pil_t).unsqueeze(0).to(device)
+
+    for img_idx in indices:
+        img_tensor, label = dataset[img_idx]
+        img_clean = (img_tensor.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+        img_noisy = add_noise_to_images(img_clean[np.newaxis, ...], noise_type=noise_config['type'], **noise_config['params'])[0]
+        img_noisy_tensor = torch.FloatTensor(img_noisy).permute(2, 0, 1) / 255.0
+
+        img_unet = denoise_with_patches(unet_model, img_noisy_tensor, device, patch_size=32, stride=16)
+        img_unet_np = (img_unet.permute(1, 2, 0).numpy() * 255).clip(0, 255).astype(np.uint8)
+
+        img_gan = denoise_with_patches(gan_model, img_noisy_tensor, device, patch_size=32, stride=16)
+        img_gan_np = (img_gan.permute(1, 2, 0).numpy() * 255).clip(0, 255).astype(np.uint8)
+
+        mse_noisy = np.mean((img_noisy.astype(float) - img_clean.astype(float)) ** 2)
+        psnr_noisy = calculate_psnr(img_noisy, img_clean, max_pixel_value=255.0)
+        mse_unet = np.mean((img_unet_np.astype(float) - img_clean.astype(float)) ** 2)
+        psnr_unet = calculate_psnr(img_unet_np, img_clean, max_pixel_value=255.0)
+        mse_gan = np.mean((img_gan_np.astype(float) - img_clean.astype(float)) ** 2)
+        psnr_gan = calculate_psnr(img_gan_np, img_clean, max_pixel_value=255.0)
+
+        psnr_noisy_list.append(psnr_noisy)
+        psnr_unet_list.append(psnr_unet)
+        psnr_gan_list.append(psnr_gan)
+        mse_noisy_list.append(mse_noisy)
+        mse_unet_list.append(mse_unet)
+        mse_gan_list.append(mse_gan)
+
+        # ...existing code...
+
+        # LPIPS
+        lp_noisy = lp_unet = lp_gan = None
+        if lpips_model is not None:
+            try:
+                gt_lp = prep_for_lpips_arr(img_clean)
+                noisy_lp = prep_for_lpips_arr(img_noisy)
+                unet_lp = prep_for_lpips_arr(img_unet_np)
+                gan_lp = prep_for_lpips_arr(img_gan_np)
+                lp_noisy = float(lpips_model(gt_lp, noisy_lp).cpu().item())
+                lp_unet = float(lpips_model(gt_lp, unet_lp).cpu().item())
+                lp_gan = float(lpips_model(gt_lp, gan_lp).cpu().item())
+                lpips_noisy_list.append(lp_noisy)
+                lpips_unet_list.append(lp_unet)
+                lpips_gan_list.append(lp_gan)
+            except Exception as e:
+                print(f"⚠️  Erreur LPIPS sur image {img_idx}: {e}")
+
+        row = {
+            'index': int(img_idx),
+            'label': int(label) if isinstance(label, (int, np.integer)) else str(label),
+            'mse_noisy': float(mse_noisy),
+            'mse_unet': float(mse_unet),
+            'mse_gan': float(mse_gan),
+            'psnr_noisy': float(psnr_noisy),
+            'psnr_unet': float(psnr_unet),
+            'psnr_gan': float(psnr_gan),
+            'lpips_noisy': lp_noisy,
+            'lpips_unet': lp_unet,
+            'lpips_gan': lp_gan,
+            'noise': noise_config['name']
+        }
+        rows.append(row)
+
+    summary = {
+        'avg_mse_noisy': float(np.mean(mse_noisy_list)),
+        'avg_mse_unet': float(np.mean(mse_unet_list)),
+        'avg_mse_gan': float(np.mean(mse_gan_list)),
+        'avg_psnr_noisy': float(np.mean(psnr_noisy_list)),
+        'avg_psnr_unet': float(np.mean(psnr_unet_list)),
+        'avg_psnr_gan': float(np.mean(psnr_gan_list)),
+    }
+    # ...existing code...
+    if len(lpips_noisy_list) > 0:
+        summary.update({
+            'avg_lpips_noisy': float(np.mean(lpips_noisy_list)),
+            'avg_lpips_unet': float(np.mean(lpips_unet_list)),
+            'avg_lpips_gan': float(np.mean(lpips_gan_list)),
+        })
+
+    if out_csv is not None:
+        # ensure dir exists
+        os.makedirs(os.path.dirname(out_csv), exist_ok=True) if os.path.dirname(out_csv) != '' else None
+        # if multiple noise configs are run, append noise name to filename
+        base, ext = os.path.splitext(out_csv)
+        out_file = f"{base}_{noise_config['type']}{ext or '.csv'}"
+        keys = ['index','label','noise','mse_noisy','mse_unet','mse_gan','psnr_noisy','psnr_unet','psnr_gan']
+        # extend keys for LPIPS
+        if len(lpips_noisy_list) >= 0:
+            keys.extend(['lpips_noisy','lpips_unet','lpips_gan'])
+        with open(out_file, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=keys)
+            writer.writeheader()
+            for r in rows:
+                # ensure LPIPS keys exist
+                if 'lpips_noisy' not in r:
+                    r['lpips_noisy'] = None
+                    r['lpips_unet'] = None
+                    r['lpips_gan'] = None
+                writer.writerow(r)
+        print(f"✅ Résultats sauvegardés dans {out_file}")
+
+    return summary
 
 
 def test_visualization_unet_gan():
@@ -237,6 +429,12 @@ def test_visualization_unet_gan():
                         help='Dataset à utiliser (défaut: stl10)')
     parser.add_argument('--n-samples', type=int, default=3,
                         help='Nombre d\'images à afficher (défaut: 3)')
+    # ...existing code...
+    parser.add_argument('--compute-lpips', action='store_true', help='Calculer LPIPS (perceptual) entre GT et outputs')
+    parser.add_argument('--lpips-net', type=str, default='alex', choices=['alex','vgg','squeeze'], help='Backbone pour LPIPS (défaut: alex)')
+    parser.add_argument('--benchmark', action='store_true', help='Lancer le benchmark (pas d\'affichage, calcule et sauvegarde métriques).')
+    parser.add_argument('--max-samples', type=int, default=100, help='Nombre max d\'images à utiliser pour le benchmark.')
+    parser.add_argument('--out-csv', type=str, default=None, help='Chemin de sortie CSV pour sauvegarder les résultats (optionnel).')
     
     args = parser.parse_args()
     
@@ -273,6 +471,18 @@ def test_visualization_unet_gan():
     )
     
     print(f"✅ {len(test_dataset)} images chargées")
+    # ...existing code...
+    # Charger LPIPS si demandé
+    if args.compute_lpips:
+        if lpips is None:
+            print("\n⚠️  LPIPS non installé. Installez avec: pip install lpips")
+            visualize_comparison.lpips_fn = None
+        else:
+            print(f"\nChargement LPIPS (net={args.lpips_net})...")
+            lpips_fn = lpips.LPIPS(net=args.lpips_net).to(device)
+            visualize_comparison.lpips_fn = lpips_fn
+    else:
+        visualize_comparison.lpips_fn = None
     
     # Configuration des bruits
     noise_configs = [
@@ -298,16 +508,33 @@ def test_visualization_unet_gan():
         print("\n" + "=" * 80)
         print(f"TEST {i}/3 : {noise_config['name']}")
         print("=" * 80)
-        
-        visualize_comparison(
-            unet_model=unet_model,
-            gan_model=gan_model,
-            dataset=test_dataset,
-            device=device,
-            noise_config=noise_config,
-            n_samples=args.n_samples,
-            dataset_name=args.dataset
-        )
+        if args.benchmark:
+            print("Lancement benchmark (calcul des métriques sans affichage)...")
+            summary = benchmark_comparison(
+                unet_model=unet_model,
+                gan_model=gan_model,
+                dataset=test_dataset,
+                device=device,
+                noise_config=noise_config,
+                max_samples=args.max_samples,
+                dataset_name=args.dataset,
+                # ...existing code...
+                lpips_model=(visualize_comparison.lpips_fn if args.compute_lpips and getattr(visualize_comparison, 'lpips_fn', None) is not None else None),
+                out_csv=args.out_csv
+            )
+            print("Résumé:")
+            for k, v in summary.items():
+                print(f"  {k}: {v:.4f}")
+        else:
+            visualize_comparison(
+                unet_model=unet_model,
+                gan_model=gan_model,
+                dataset=test_dataset,
+                device=device,
+                noise_config=noise_config,
+                n_samples=args.n_samples,
+                dataset_name=args.dataset
+            )
     
     print("\n" + "=" * 80)
     print("TEST TERMINÉ ✔")
