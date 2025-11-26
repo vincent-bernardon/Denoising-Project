@@ -568,6 +568,9 @@ if __name__ == "__main__":
     os.makedirs(checkpoint_dir, exist_ok=True)
     os.makedirs(best_dir, exist_ok=True)
 
+    # Padding dynamique pour les noms de fichiers
+    epoch_pad = max(3, len(str(args.epochs)))
+
     # Adaptation auto des hyperparamètres
     d_strong_epochs = 0
     for epoch in range(args.epochs):
@@ -626,22 +629,20 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"⚠️  Erreur sauvegarde historique: {e}")
 
-        # Sauvegarde checkpoint à chaque époque
-        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch{epoch+1:03d}.pth')
+        # Sauvegarde checkpoint à chaque époque avec padding dynamique
+        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch{epoch+1:0{epoch_pad}d}.pth')
         torch.save(generator.state_dict(), checkpoint_path)
-        checkpoints = sorted(glob(os.path.join(checkpoint_dir, 'checkpoint_epoch*.pth')))
+        checkpoints = sorted(glob(os.path.join(checkpoint_dir, f'checkpoint_epoch*.pth')))
         if len(checkpoints) > 10:
             os.remove(checkpoints[0])
 
-        # Sauvegarder meilleur modèle dans best_dir
+        # Sauvegarder meilleur modèle dans best_dir avec padding dynamique
         if val_metrics['psnr'] > best_psnr:
             best_psnr = val_metrics['psnr']
             torch.save(generator.state_dict(), model_path)
             marker = " ✓ (best)"
-            # Sauvegarde dans gan_best_train avec nom unique
-            best_path = os.path.join(best_dir, f'best_epoch{epoch+1:03d}_psnr{best_psnr:.2f}.pth')
+            best_path = os.path.join(best_dir, f'best_epoch{epoch+1:0{epoch_pad}d}_psnr{best_psnr:.2f}.pth')
             torch.save(generator.state_dict(), best_path)
-            # Limite à 5 meilleurs modèles
             best_checkpoints = sorted(glob(os.path.join(best_dir, 'best_epoch*.pth')))
             if len(best_checkpoints) > 5:
                 os.remove(best_checkpoints[0])
