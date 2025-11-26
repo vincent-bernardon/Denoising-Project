@@ -223,8 +223,9 @@ def plot_comparison(results, dataset_name, save_path=None):
     dists_unet = [r['metrics'].get('dists_unet', None) for r in results]
     dists_gan = [r['metrics'].get('dists_gan', None) for r in results]
 
-    # Créer la figure avec 4 graphiques
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(36, 6))
+    # Créer la figure avec une grille 2x2 de graphiques
+    fig, axs = plt.subplots(2, 2, figsize=(18, 12))
+    ax1, ax2, ax3, ax4 = axs[0, 0], axs[0, 1], axs[1, 0], axs[1, 1]
     fig.suptitle(f'Comparaison U-Net vs U-Net+GAN - {dataset_name.upper()}', 
                  fontsize=16, fontweight='bold')
     
