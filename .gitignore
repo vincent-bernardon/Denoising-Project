@@ -12,3 +12,6 @@ code/code/*
 code/*.pth
 dataset/*
 brouillon/*
+
+gan_train/*
+gan_best_train/*
