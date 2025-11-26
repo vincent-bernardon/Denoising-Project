@@ -534,6 +534,9 @@ if __name__ == "__main__":
     print("   Si D_real et D_fake > 0.8 → Discriminateur trop fort")
     print("   Si D_real et D_fake < 0.4 → Générateur trop fort\n")
     
+    import os
+    import numpy as np
+    import csv
     history = {
         'train_g_loss': [], 'train_d_loss': [],
         'train_d_real_acc': [], 'train_d_fake_acc': [],
@@ -541,6 +544,19 @@ if __name__ == "__main__":
         'val_d_real_acc': [], 'val_d_fake_acc': [],
         'val_psnr': []
     }
+    # Fichier CSV pour sauvegarde continue
+    csv_file = f'./code/unet_gan_history_{args.dataset}.csv'
+    # Écrire l'entête si le fichier n'existe pas
+    if not os.path.exists(csv_file):
+        with open(csv_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'epoch',
+                'train_g_loss', 'train_d_loss', 'train_d_real_acc', 'train_d_fake_acc',
+                'val_g_loss', 'val_d_loss', 'val_d_real_acc', 'val_d_fake_acc', 'val_psnr'
+            ])
+    # Fichier d'historique pour sauvegarde continue
+    history_file = f'./code/unet_gan_history_{args.dataset}.npz'
     
     best_psnr = 0
     model_path = output_model_path
@@ -581,6 +597,34 @@ if __name__ == "__main__":
         history['val_d_real_acc'].append(val_metrics['d_real_acc'])
         history['val_d_fake_acc'].append(val_metrics['d_fake_acc'])
         history['val_psnr'].append(val_metrics['psnr'])
+
+        # Sauvegarde CSV à chaque époque (append)
+        with open(csv_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                epoch + 1,
+                train_metrics['g_loss'], train_metrics['d_loss'],
+                train_metrics['d_real_acc'], train_metrics['d_fake_acc'],
+                val_metrics['g_loss'], val_metrics['d_loss'],
+                val_metrics['d_real_acc'], val_metrics['d_fake_acc'],
+                val_metrics['psnr']
+            ])
+
+        # Sauvegarde continue de l'historique à chaque époque
+        try:
+            np.savez(history_file,
+                train_g_loss=np.array(history['train_g_loss']),
+                train_d_loss=np.array(history['train_d_loss']),
+                train_d_real_acc=np.array(history['train_d_real_acc']),
+                train_d_fake_acc=np.array(history['train_d_fake_acc']),
+                val_g_loss=np.array(history['val_g_loss']),
+                val_d_loss=np.array(history['val_d_loss']),
+                val_d_real_acc=np.array(history['val_d_real_acc']),
+                val_d_fake_acc=np.array(history['val_d_fake_acc']),
+                val_psnr=np.array(history['val_psnr'])
+            )
+        except Exception as e:
+            print(f"⚠️  Erreur sauvegarde historique: {e}")
 
         # Sauvegarde checkpoint à chaque époque
         checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch{epoch+1:03d}.pth')
