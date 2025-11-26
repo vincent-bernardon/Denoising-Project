@@ -544,7 +544,16 @@ if __name__ == "__main__":
     
     best_psnr = 0
     model_path = output_model_path
-    
+
+    import os
+    from glob import glob
+    checkpoint_dir = './gan_train'
+    best_dir = './gan_best_train'
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(best_dir, exist_ok=True)
+
+    # Adaptation auto des hyperparamètres
+    d_strong_epochs = 0
     for epoch in range(args.epochs):
         # Train
         train_metrics = train_gan_epoch(
@@ -554,14 +563,14 @@ if __name__ == "__main__":
             noise_probability=args.noise_prob,
             epoch=epoch
         )
-        
+
         # Validation
         val_metrics = validate_gan(
             generator, discriminator, device, val_loader,
             noise_configs, noise_probability=args.noise_prob,
             epoch=epoch
         )
-        
+
         # Historique
         history['train_g_loss'].append(train_metrics['g_loss'])
         history['train_d_loss'].append(train_metrics['d_loss'])
@@ -572,25 +581,53 @@ if __name__ == "__main__":
         history['val_d_real_acc'].append(val_metrics['d_real_acc'])
         history['val_d_fake_acc'].append(val_metrics['d_fake_acc'])
         history['val_psnr'].append(val_metrics['psnr'])
-        
-        # Sauvegarder meilleur modèle
+
+        # Sauvegarde checkpoint à chaque époque
+        checkpoint_path = os.path.join(checkpoint_dir, f'checkpoint_epoch{epoch+1:03d}.pth')
+        torch.save(generator.state_dict(), checkpoint_path)
+        checkpoints = sorted(glob(os.path.join(checkpoint_dir, 'checkpoint_epoch*.pth')))
+        if len(checkpoints) > 10:
+            os.remove(checkpoints[0])
+
+        # Sauvegarder meilleur modèle dans best_dir
         if val_metrics['psnr'] > best_psnr:
             best_psnr = val_metrics['psnr']
             torch.save(generator.state_dict(), model_path)
             marker = " ✓ (best)"
+            # Sauvegarde dans gan_best_train avec nom unique
+            best_path = os.path.join(best_dir, f'best_epoch{epoch+1:03d}_psnr{best_psnr:.2f}.pth')
+            torch.save(generator.state_dict(), best_path)
+            # Limite à 5 meilleurs modèles
+            best_checkpoints = sorted(glob(os.path.join(best_dir, 'best_epoch*.pth')))
+            if len(best_checkpoints) > 5:
+                os.remove(best_checkpoints[0])
         else:
             marker = ""
-        
+
         # Affichage détaillé avec D_real et D_fake
         print(f"EPOCH {epoch+1:2d}/{args.epochs} | "
               f"Train G:{train_metrics['g_loss']:6.3f} D:{train_metrics['d_loss']:6.3f} | "
               f"D_real:{train_metrics['d_real_acc']:.2f} D_fake:{train_metrics['d_fake_acc']:.2f} | "
               f"Val PSNR:{val_metrics['psnr']:5.2f}dB{marker}")
-        
-        # Warning si déséquilibre
+
+        # Adaptation auto des hyperparamètres si D trop fort
         if train_metrics['d_real_acc'] > 0.85 and train_metrics['d_fake_acc'] > 0.85:
-            print(f"  ⚠️  Discriminateur trop fort ! Considérez --d-lr plus faible ou --lambda-pixel plus élevé")
-        elif train_metrics['d_real_acc'] < 0.4 and train_metrics['d_fake_acc'] < 0.4:
+            d_strong_epochs += 1
+            print(f"  ⚠️  Discriminateur trop fort ! d-lr et lambda-pixel vont être adaptés si ça continue...")
+        else:
+            d_strong_epochs = 0
+        if d_strong_epochs >= 5:
+            # Divise d-lr par 2
+            for param_group in d_optimizer.param_groups:
+                param_group['lr'] = param_group['lr'] / 2
+            args.d_lr = args.d_lr / 2
+            # Augmente lambda-pixel de 20%
+            args.lambda_pixel = args.lambda_pixel * 1.2
+            print(f"  🔄 Adaptation auto : d-lr -> {args.d_lr:.6f}, lambda-pixel -> {args.lambda_pixel:.1f}")
+            d_strong_epochs = 0
+
+        # Warning si générateur trop fort
+        if train_metrics['d_real_acc'] < 0.4 and train_metrics['d_fake_acc'] < 0.4:
             print(f"  ⚠️  Générateur domine ! Considérez --g-lr plus faible")
     
     print("\n" + "=" * 80)
