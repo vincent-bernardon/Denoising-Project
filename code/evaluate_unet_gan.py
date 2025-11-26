@@ -61,7 +61,7 @@ def calculate_mse(img1, img2):
 
 
 def evaluate_models(unet_model, gan_model, x_data, 
-                    noise_type, noise_params, device, n_samples=100, lpips_model=None, dists_model=None):
+                    noise_type, noise_params, device, n_samples=100, vif_func=None, dists_model=None):
     """
     Évalue les deux modèles sur le même ensemble d'images bruitées
     
@@ -127,29 +127,33 @@ def evaluate_models(unet_model, gan_model, x_data,
         mse_unet.append(calculate_mse(x_unet_denoised[i], x_samples[i]))
         mse_gan.append(calculate_mse(x_gan_denoised[i], x_samples[i]))
     
-    # LPIPS
-    lpips_noisy = []
-    lpips_unet = []
-    lpips_gan = []
-    if lpips_model is not None:
-        import torchvision.transforms as T
-        def prep_for_lpips(img_arr):
-            pil = T.ToPILImage()(img_arr.astype(np.uint8))
-            proc = T.Compose([
-                T.Resize((224, 224)),
-                T.ToTensor(),
-                T.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
-            ])
-            return proc(pil).unsqueeze(0).to(device)
+    # VIF
+    vif_noisy = []
+    vif_unet = []
+    vif_gan = []
+    if vif_func is not None:
+        # sewar vifp expects 2D grayscale images in uint8 or float
+        def to_gray_uint8(img_arr):
+            # img_arr: HxWx3 uint8
+            if img_arr.ndim == 3 and img_arr.shape[2] == 3:
+                gray = (0.299 * img_arr[:,:,0] + 0.587 * img_arr[:,:,1] + 0.114 * img_arr[:,:,2])
+            else:
+                gray = img_arr[:,:,0]
+            return gray.astype(np.uint8)
         for i in range(len(x_samples)):
-            gt = prep_for_lpips(x_samples[i])
-            noisy = prep_for_lpips(x_noisy[i])
-            unet = prep_for_lpips(x_unet_denoised[i])
-            gan = prep_for_lpips(x_gan_denoised[i])
-            with torch.no_grad():
-                lpips_noisy.append(float(lpips_model(gt, noisy).cpu().item()))
-                lpips_unet.append(float(lpips_model(gt, unet).cpu().item()))
-                lpips_gan.append(float(lpips_model(gt, gan).cpu().item()))
+            gt = to_gray_uint8(x_samples[i])
+            noisy = to_gray_uint8(x_noisy[i])
+            unet = to_gray_uint8(x_unet_denoised[i])
+            gan = to_gray_uint8(x_gan_denoised[i])
+            try:
+                vif_noisy.append(float(vif_func(gt, noisy)))
+                vif_unet.append(float(vif_func(gt, unet)))
+                vif_gan.append(float(vif_func(gt, gan)))
+            except Exception:
+                # fall back to None if computation fails
+                vif_noisy.append(None)
+                vif_unet.append(None)
+                vif_gan.append(None)
     # DISTS
     dists_noisy = []
     dists_unet = []
@@ -180,9 +184,9 @@ def evaluate_models(unet_model, gan_model, x_data,
         'mse_unet': np.mean(mse_unet),
         'mse_gan': np.mean(mse_gan),
         'n_samples': len(x_samples),
-        'lpips_noisy': np.mean(lpips_noisy) if lpips_noisy else None,
-        'lpips_unet': np.mean(lpips_unet) if lpips_unet else None,
-        'lpips_gan': np.mean(lpips_gan) if lpips_gan else None,
+        'vif_noisy': np.mean([v for v in vif_noisy if v is not None]) if vif_noisy else None,
+        'vif_unet': np.mean([v for v in vif_unet if v is not None]) if vif_unet else None,
+        'vif_gan': np.mean([v for v in vif_gan if v is not None]) if vif_gan else None,
         'dists_noisy': np.mean(dists_noisy) if dists_noisy else None,
         'dists_unet': np.mean(dists_unet) if dists_unet else None,
         'dists_gan': np.mean(dists_gan) if dists_gan else None
@@ -209,10 +213,10 @@ def plot_comparison(results, dataset_name, save_path=None):
     mse_unet = [r['metrics']['mse_unet'] for r in results]
     mse_gan = [r['metrics']['mse_gan'] for r in results]
 
-    # LPIPS (si présent)
-    lpips_noisy = [r['metrics'].get('lpips_noisy', None) for r in results]
-    lpips_unet = [r['metrics'].get('lpips_unet', None) for r in results]
-    lpips_gan = [r['metrics'].get('lpips_gan', None) for r in results]
+    # VIF (si présent)
+    vif_noisy = [r['metrics'].get('vif_noisy', None) for r in results]
+    vif_unet = [r['metrics'].get('vif_unet', None) for r in results]
+    vif_gan = [r['metrics'].get('vif_gan', None) for r in results]
 
     # DISTS (si présent)
     dists_noisy = [r['metrics'].get('dists_noisy', None) for r in results]
@@ -280,14 +284,14 @@ def plot_comparison(results, dataset_name, save_path=None):
     all_mse = mse_noisy + mse_unet + mse_gan
     ax2.set_ylim(bottom=0, top=max(all_mse) * 1.15)
 
-    # ========== GRAPHIQUE 3 : LPIPS ==========
-    # Afficher le graphique LPIPS seulement si les valeurs existent
-    if any(lpips_noisy) or any(lpips_unet) or any(lpips_gan):
-        bars7 = ax3.bar(x - width, lpips_noisy, width, label='Images bruitées', 
+    # ========== GRAPHIQUE 3 : VIF ==========
+    # Afficher le graphique VIF seulement si les valeurs existent
+    if any(vif_noisy) or any(vif_unet) or any(vif_gan):
+        bars7 = ax3.bar(x - width, vif_noisy, width, label='Images bruitées', 
                         color='#e74c3c', alpha=0.85, edgecolor='black', linewidth=1.5)
-        bars8 = ax3.bar(x, lpips_unet, width, label='U-Net débruité', 
+        bars8 = ax3.bar(x, vif_unet, width, label='U-Net débruité', 
                         color='#3498db', alpha=0.85, edgecolor='black', linewidth=1.5)
-        bars9 = ax3.bar(x + width, lpips_gan, width, label='U-Net+GAN débruité', 
+        bars9 = ax3.bar(x + width, vif_gan, width, label='U-Net+GAN débruité', 
                         color='#2ecc71', alpha=0.85, edgecolor='black', linewidth=1.5)
 
         for bars in [bars7, bars8, bars9]:
@@ -298,18 +302,18 @@ def plot_comparison(results, dataset_name, save_path=None):
                         ha='center', va='bottom', fontsize=9, fontweight='bold')
 
         ax3.set_xlabel('Type de bruit', fontsize=13, fontweight='bold')
-        ax3.set_ylabel('LPIPS', fontsize=13, fontweight='bold')
-        ax3.set_title('LPIPS moyen : Comparaison des méthodes', fontsize=14, fontweight='bold')
+        ax3.set_ylabel('VIF', fontsize=13, fontweight='bold')
+        ax3.set_title('VIF moyen : Comparaison des méthodes', fontsize=14, fontweight='bold')
         ax3.set_xticks(x)
         ax3.set_xticklabels(noise_types, fontsize=11)
         ax3.legend(fontsize=11, loc='upper right')
         ax3.grid(axis='y', alpha=0.3, linestyle='--', linewidth=1)
-        all_lpips = [v for v in lpips_noisy + lpips_unet + lpips_gan if v is not None]
-        if all_lpips:
-            ax3.set_ylim(bottom=0, top=max(all_lpips) * 1.15)
+        all_vif = [v for v in vif_noisy + vif_unet + vif_gan if v is not None]
+        if all_vif:
+            ax3.set_ylim(bottom=0, top=max(all_vif) * 1.15)
     else:
         ax3.axis('off')
-        ax3.set_title('LPIPS non disponible', fontsize=14, fontweight='bold')
+        ax3.set_title('VIF non disponible', fontsize=14, fontweight='bold')
 
     # ========== GRAPHIQUE 4 : DISTS ==========
     # Afficher le graphique DISTS seulement si les valeurs existent
@@ -363,8 +367,7 @@ def main():
                         help='Chemin vers le modèle U-Net (auto-détecté si non spécifié)')
     parser.add_argument('--gan-model', type=str, default=None,
                         help='Chemin vers le modèle U-Net+GAN (auto-détecté si non spécifié)')
-    parser.add_argument('--compute-lpips', action='store_true', help='Calculer LPIPS (perceptual) entre GT et outputs')
-    parser.add_argument('--lpips-net', type=str, default='alex', choices=['alex','vgg','squeeze'], help='Backbone pour LPIPS (défaut: alex)')
+    parser.add_argument('--compute-vif', action='store_true', help='Calculer VIF (Visual Information Fidelity) entre GT et outputs')
     parser.add_argument('--compute-dists', action='store_true', help='Calculer DISTS (perceptual) entre GT et outputs')
     parser.add_argument('--dists-net', type=str, default='vgg', choices=['vgg'], help='Backbone pour DISTS (défaut: vgg)')
 
@@ -497,16 +500,16 @@ def main():
          'params': {'gaussian_std': 20, 'salt_prob': 0.01, 'pepper_prob': 0.01}}
     ]
     
-    # Charger LPIPS si demandé
-    lpips_model = None
-    if args.compute_lpips:
+    # Charger VIF si demandé
+    vif_func = None
+    if args.compute_vif:
         try:
-            import lpips
-            print(f"\nChargement LPIPS (net={args.lpips_net})...")
-            lpips_model = lpips.LPIPS(net=args.lpips_net).to(device)
+            from sewar.full_ref import vifp
+            print(f"\nChargement VIF (sewar.vifp)...")
+            vif_func = vifp
         except Exception as e:
-            print(f"\n⚠️  Erreur lors du chargement de LPIPS: {e}")
-            lpips_model = None
+            print(f"\n⚠️  Erreur lors du chargement de VIF (sewar): {e}")
+            vif_func = None
 
     # Évaluer pour chaque type de bruit
     results = []
@@ -521,7 +524,7 @@ def main():
             unet_model, gan_model,
             x_test, config['type'], config['params'],
             device, n_samples=args.n_samples,
-            lpips_model=lpips_model,
+            vif_func=vif_func,
             dists_model=dists_model
         )
         results.append({
@@ -533,9 +536,9 @@ def main():
               f"U-Net={metrics['psnr_unet']:.2f} | U-Net+GAN={metrics['psnr_gan']:.2f}")
         print(f"   MSE:  Noisy={metrics['mse_noisy']:.4f} | "
               f"U-Net={metrics['mse_unet']:.4f} | U-Net+GAN={metrics['mse_gan']:.4f}")
-        if lpips_model is not None:
-            print(f"   LPIPS: Noisy={metrics['lpips_noisy']:.4f} | "
-                  f"U-Net={metrics['lpips_unet']:.4f} | U-Net+GAN={metrics['lpips_gan']:.4f}")
+        if vif_func is not None:
+            print(f"   VIF: Noisy={metrics['vif_noisy']:.4f} | "
+                  f"U-Net={metrics['vif_unet']:.4f} | U-Net+GAN={metrics['vif_gan']:.4f}")
         if dists_model is not None:
             print(f"   DISTS: Noisy={metrics['dists_noisy']:.4f} | "
                   f"U-Net={metrics['dists_unet']:.4f} | U-Net+GAN={metrics['dists_gan']:.4f}")
