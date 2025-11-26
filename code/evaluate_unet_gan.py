@@ -61,7 +61,7 @@ def calculate_mse(img1, img2):
 
 
 def evaluate_models(unet_model, gan_model, x_data, 
-                    noise_type, noise_params, device, n_samples=100, lpips_model=None):
+                    noise_type, noise_params, device, n_samples=100, lpips_model=None, dists_model=None):
     """
     Évalue les deux modèles sur le même ensemble d'images bruitées
     
@@ -150,6 +150,28 @@ def evaluate_models(unet_model, gan_model, x_data,
                 lpips_noisy.append(float(lpips_model(gt, noisy).cpu().item()))
                 lpips_unet.append(float(lpips_model(gt, unet).cpu().item()))
                 lpips_gan.append(float(lpips_model(gt, gan).cpu().item()))
+    # DISTS
+    dists_noisy = []
+    dists_unet = []
+    dists_gan = []
+    if dists_model is not None:
+        import torchvision.transforms as T
+        def prep_for_dists(img_arr):
+            pil = T.ToPILImage()(img_arr.astype(np.uint8))
+            proc = T.Compose([
+                T.Resize((224, 224)),
+                T.ToTensor()
+            ])
+            return proc(pil).unsqueeze(0).to(device)
+        for i in range(len(x_samples)):
+            gt = prep_for_dists(x_samples[i])
+            noisy = prep_for_dists(x_noisy[i])
+            unet = prep_for_dists(x_unet_denoised[i])
+            gan = prep_for_dists(x_gan_denoised[i])
+            with torch.no_grad():
+                dists_noisy.append(float(dists_model(gt, noisy).cpu().item()))
+                dists_unet.append(float(dists_model(gt, unet).cpu().item()))
+                dists_gan.append(float(dists_model(gt, gan).cpu().item()))
     return {
         'psnr_noisy': np.mean(psnr_noisy),
         'psnr_unet': np.mean(psnr_unet),
@@ -160,7 +182,10 @@ def evaluate_models(unet_model, gan_model, x_data,
         'n_samples': len(x_samples),
         'lpips_noisy': np.mean(lpips_noisy) if lpips_noisy else None,
         'lpips_unet': np.mean(lpips_unet) if lpips_unet else None,
-        'lpips_gan': np.mean(lpips_gan) if lpips_gan else None
+        'lpips_gan': np.mean(lpips_gan) if lpips_gan else None,
+        'dists_noisy': np.mean(dists_noisy) if dists_noisy else None,
+        'dists_unet': np.mean(dists_unet) if dists_unet else None,
+        'dists_gan': np.mean(dists_gan) if dists_gan else None
     }
 
 
@@ -189,8 +214,13 @@ def plot_comparison(results, dataset_name, save_path=None):
     lpips_unet = [r['metrics'].get('lpips_unet', None) for r in results]
     lpips_gan = [r['metrics'].get('lpips_gan', None) for r in results]
 
-    # Créer la figure avec 3 graphiques
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(27, 6))
+    # DISTS (si présent)
+    dists_noisy = [r['metrics'].get('dists_noisy', None) for r in results]
+    dists_unet = [r['metrics'].get('dists_unet', None) for r in results]
+    dists_gan = [r['metrics'].get('dists_gan', None) for r in results]
+
+    # Créer la figure avec 4 graphiques
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(36, 6))
     fig.suptitle(f'Comparaison U-Net vs U-Net+GAN - {dataset_name.upper()}', 
                  fontsize=16, fontweight='bold')
     
@@ -281,6 +311,37 @@ def plot_comparison(results, dataset_name, save_path=None):
         ax3.axis('off')
         ax3.set_title('LPIPS non disponible', fontsize=14, fontweight='bold')
 
+    # ========== GRAPHIQUE 4 : DISTS ==========
+    # Afficher le graphique DISTS seulement si les valeurs existent
+    if any(dists_noisy) or any(dists_unet) or any(dists_gan):
+        bars10 = ax4.bar(x - width, dists_noisy, width, label='Images bruitées', 
+                        color='#e74c3c', alpha=0.85, edgecolor='black', linewidth=1.5)
+        bars11 = ax4.bar(x, dists_unet, width, label='U-Net débruité', 
+                        color='#3498db', alpha=0.85, edgecolor='black', linewidth=1.5)
+        bars12 = ax4.bar(x + width, dists_gan, width, label='U-Net+GAN débruité', 
+                        color='#2ecc71', alpha=0.85, edgecolor='black', linewidth=1.5)
+
+        for bars in [bars10, bars11, bars12]:
+            for bar in bars:
+                height = bar.get_height()
+                ax4.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{height:.3f}',
+                        ha='center', va='bottom', fontsize=9, fontweight='bold')
+
+        ax4.set_xlabel('Type de bruit', fontsize=13, fontweight='bold')
+        ax4.set_ylabel('DISTS', fontsize=13, fontweight='bold')
+        ax4.set_title('DISTS moyen : Comparaison des méthodes', fontsize=14, fontweight='bold')
+        ax4.set_xticks(x)
+        ax4.set_xticklabels(noise_types, fontsize=11)
+        ax4.legend(fontsize=11, loc='upper right')
+        ax4.grid(axis='y', alpha=0.3, linestyle='--', linewidth=1)
+        all_dists = [v for v in dists_noisy + dists_unet + dists_gan if v is not None]
+        if all_dists:
+            ax4.set_ylim(bottom=0, top=max(all_dists) * 1.15)
+    else:
+        ax4.axis('off')
+        ax4.set_title('DISTS non disponible', fontsize=14, fontweight='bold')
+
     plt.tight_layout()
 
     # Sauvegarder
@@ -304,17 +365,63 @@ def main():
                         help='Chemin vers le modèle U-Net+GAN (auto-détecté si non spécifié)')
     parser.add_argument('--compute-lpips', action='store_true', help='Calculer LPIPS (perceptual) entre GT et outputs')
     parser.add_argument('--lpips-net', type=str, default='alex', choices=['alex','vgg','squeeze'], help='Backbone pour LPIPS (défaut: alex)')
-    
+    parser.add_argument('--compute-dists', action='store_true', help='Calculer DISTS (perceptual) entre GT et outputs')
+    parser.add_argument('--dists-net', type=str, default='vgg', choices=['vgg'], help='Backbone pour DISTS (défaut: vgg)')
+
     args = parser.parse_args()
-    
+
     print("=" * 80)
     print("COMPARAISON U-Net vs U-Net+GAN")
     print("=" * 80)
-    
+
     # Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\n🔧 Device: {device}")
-    
+
+    # Charger DISTS si demandé
+    dists_model = None
+    if args.compute_dists:
+        try:
+            import DISTS_pytorch as DISTS
+            print(f"\nChargement DISTS (net={args.dists_net})...")
+            # Vérifier la présence des fichiers .mat nécessaires
+            import os
+            alpha_beta_path = './code/alpha_beta.mat'
+            net_param_path = './code/net_param.mat'
+            # Téléchargement automatique si manquant
+            if not os.path.exists(alpha_beta_path):
+                print("Téléchargement de alpha_beta.mat...")
+                url = 'https://github.com/dingkeyan93/DISTS/raw/master/weights/alpha_beta.mat'
+                import urllib.request
+                urllib.request.urlretrieve(url, alpha_beta_path)
+            if not os.path.exists(net_param_path):
+                print("Téléchargement de net_param.mat...")
+                url = 'https://github.com/dingkeyan93/DISTS/raw/master/weights/net_param.mat'
+                import urllib.request
+                urllib.request.urlretrieve(url, net_param_path)
+            # Instantiate without automatic torch.load to avoid /usr/weights.pt lookup
+            dists_model = DISTS.DISTS(load_weights=False).to(device)
+            # Load alpha/beta from .mat if present and set them
+            try:
+                from scipy.io import loadmat
+                mat = loadmat(alpha_beta_path)
+                alpha = mat.get('alpha')
+                beta = mat.get('beta')
+                if alpha is not None and beta is not None:
+                    import torch as _torch
+                    # alpha and beta are shape (1, N), model expects (1, N, 1, 1)
+                    alpha_t = _torch.tensor(alpha.astype('float32'))
+                    beta_t = _torch.tensor(beta.astype('float32'))
+                    alpha_t = alpha_t.view(1, -1, 1, 1)
+                    beta_t = beta_t.view(1, -1, 1, 1)
+                    dists_model.alpha.data = alpha_t.to(device)
+                    dists_model.beta.data = beta_t.to(device)
+            except Exception as e:
+                print(f"⚠️  Erreur lors du chargement des paramètres DISTS depuis .mat: {e}")
+        except Exception as e:
+            print(f"\n⚠️  Erreur lors du chargement de DISTS: {e}")
+            dists_model = None
+
     # Vérifier la disponibilité pour CIFAR-10
     if args.dataset == 'cifar10':
         print("\n⚠️  ATTENTION: Aucun modèle U-Net+GAN disponible pour CIFAR-10")
@@ -414,7 +521,8 @@ def main():
             unet_model, gan_model,
             x_test, config['type'], config['params'],
             device, n_samples=args.n_samples,
-            lpips_model=lpips_model
+            lpips_model=lpips_model,
+            dists_model=dists_model
         )
         results.append({
             'name': config['name'],
@@ -428,6 +536,9 @@ def main():
         if lpips_model is not None:
             print(f"   LPIPS: Noisy={metrics['lpips_noisy']:.4f} | "
                   f"U-Net={metrics['lpips_unet']:.4f} | U-Net+GAN={metrics['lpips_gan']:.4f}")
+        if dists_model is not None:
+            print(f"   DISTS: Noisy={metrics['dists_noisy']:.4f} | "
+                  f"U-Net={metrics['dists_unet']:.4f} | U-Net+GAN={metrics['dists_gan']:.4f}")
     
     # Afficher le tableau comparatif
     print(f"\n{'='*80}")
