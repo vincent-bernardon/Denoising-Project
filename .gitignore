@@ -11,6 +11,8 @@ code/dataset*
 code/code/*
 code/*.pth
 dataset/*
+
+
 brouillon/*
 
 gan_train/*
