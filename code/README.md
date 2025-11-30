@@ -1,0 +1,1 @@
+pour lancer une code faire PYTHONPATH=code python ./chemin_du_code.py

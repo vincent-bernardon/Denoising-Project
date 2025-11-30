@@ -1,6 +1,7 @@
 code/test_pytorch.py
 code/*.png
 code/__pycache__/*.pyc
+code/*/__pycache__/*.pyc
 code/stl10/stl10_binary
 code/stl10/stl10_binary.tar.gz
 code/unet_denoising_multinoise.pth
