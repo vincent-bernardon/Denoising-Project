@@ -10,7 +10,7 @@ import numpy as np
 import argparse
 from pathlib import Path
 
-from unet_model import UNet
+from UNET.unet_model import UNet
 from utils import add_noise_to_images
 
 
@@ -200,10 +200,10 @@ def compare_models(model_paths, dataset, device, noise_config, n_samples=10,
             models.append((name, model))
             print(f"✓ Modèle chargé: {name}")
         else:
-            print(f"⚠️  Modèle non trouvé: {path}")
+            print(f"/!\\  Modèle non trouvé: {path}")
     
     if len(models) == 0:
-        print("❌ Aucun modèle disponible pour la comparaison")
+        print("X Aucun modèle disponible pour la comparaison")
         return
     
     # Obtenir les labels
@@ -319,11 +319,9 @@ if __name__ == "__main__":
     print("VISUALISEUR U-NET + GAN")
     print("=" * 80)
     
-    # Device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"\n🔧 Device: {device}")
+    print(f"\nDevice: {device}")
     
-    # Configuration des bruits
     noise_configs = [
         {'name': 'Gaussien', 'type': 'gaussian', 'params': {'std': 25}},
         {'name': 'Salt & Pepper', 'type': 'salt_pepper', 
@@ -332,8 +330,7 @@ if __name__ == "__main__":
          'params': {'gaussian_std': 20, 'salt_prob': 0.01, 'pepper_prob': 0.01}}
     ]
     
-    # Charger le dataset
-    print(f"\n📦 Chargement de {args.dataset.upper()}...")
+    print(f"\nChargement de {args.dataset.upper()}...")
     data_dir = './dataset'
     
     if args.dataset == 'cifar10':
@@ -349,7 +346,7 @@ if __name__ == "__main__":
     
     # Mode comparaison ou visualisation simple
     if args.compare:
-        print("\n📊 Mode comparaison activé")
+        print("\nMode comparaison activé")
         print(f"Nombre de modèles: {len(args.compare) + 1}")
         
         # Construire la liste des modèles
@@ -370,10 +367,10 @@ if __name__ == "__main__":
     
     else:
         # Visualisation simple
-        print(f"\n🎨 Chargement du modèle: {args.model}")
+        print(f"\nChargement du modèle: {args.model}")
         
         if not Path(args.model).exists():
-            print(f"❌ Erreur: Fichier non trouvé: {args.model}")
+            print(f"Erreur: Fichier non trouvé: {args.model}")
             exit(1)
         
         model = load_unet_model(args.model, device)

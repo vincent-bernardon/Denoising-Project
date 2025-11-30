@@ -1,47 +1,25 @@
 """
-Script pour évaluer les performances du modèle U-Net unet_denoising_multinoise.pth
-Calcule le PSNR moyen et MSE moyen pour différents types de bruit
-(Mêmes bruits que test_beta_zero.py pour comparaison VAE vs U-Net)
+Script pour évaluer les performances moyennes du modèle vae_denoiser_beta0.pth
+Calcule le PSNR moyen et MSE moyen pour chaque type de bruit
+AVEC GRAPHIQUE SIMPLE (3 barres)
 """
 
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from load_cifar10 import CIFAR10Loader
-from unet_model import UNet
+from VAE.vae_model import Encoder, Decoder
+from VAE.vae_train import load_model, calculate_psnr, calculate_mse
 from utils import add_noise_to_images
 
 
-def calculate_psnr(img1, img2, max_pixel_value=255.0):
-    """Calcule le PSNR entre deux images (format uint8)"""
-    mse = np.mean((img1.astype(float) - img2.astype(float)) ** 2)
-    if mse == 0:
-        return float('inf')
-    psnr = 20 * np.log10(max_pixel_value / np.sqrt(mse))
-    return psnr
-
-
-def calculate_mse(img1, img2):
-    """Calcule le MSE entre deux images"""
-    mse = np.mean((img1.astype(float) - img2.astype(float)) ** 2)
-    return mse
-
-
-def load_unet_model(model_path, device):
-    """Charge le modèle U-Net sauvegardé"""
-    model = UNet(n_channels=3, n_classes=3, base_features=64)
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-    model.eval()
-    return model
-
-
-def calculate_metrics_for_noise_type(model, x_data, noise_type, noise_params, device, n_samples=1000):
+def calculate_metrics_for_noise_type(encoder, decoder, x_data, noise_type, noise_params, device, n_samples=1000):
     """
     Calcule les métriques moyennes pour un type de bruit donné
     
     Args:
-        model: Modèle U-Net
+        encoder: Modèle encodeur
+        decoder: Modèle décodeur
         x_data: Images propres en [0,1]
         noise_type: Type de bruit ('gaussian', 'salt_pepper', 'mixed')
         noise_params: Paramètres du bruit
@@ -56,27 +34,33 @@ def calculate_metrics_for_noise_type(model, x_data, noise_type, noise_params, de
         indices = np.random.choice(len(x_data), n_samples, replace=False)
         x_data = x_data[indices]
     
-    # Convertir en uint8 [0, 255] comme dans test_beta_zero.py
+    # Convertir en uint8 [0, 255] comme dans test_visualization.py
     x_samples = (x_data * 255).astype(np.uint8)
     
     # Générer les images bruitées (add_noise_to_images attend du uint8)
     x_noisy = add_noise_to_images(x_samples, noise_type=noise_type, **noise_params)
     
-    # Normaliser pour le U-Net [0, 1]
+    # Normaliser pour le VAE [0, 1]
     x_noisy_tensor = torch.FloatTensor(x_noisy).permute(0, 3, 1, 2) / 255.0
     x_noisy_tensor = x_noisy_tensor.to(device)
     
-    # Débruiter avec le U-Net
-    model.eval()
+    # Débruiter avec le VAE
+    encoder.eval()
+    decoder.eval()
+    
     with torch.no_grad():
-        x_recon_tensor = model(x_noisy_tensor)
-        x_recon_tensor = torch.clamp(x_recon_tensor, 0., 1.)
+        # Encoder
+        mu, logvar = encoder(x_noisy_tensor)
+        # Utiliser mu directement (pas de sampling pour l'évaluation)
+        z = mu
+        # Décoder
+        x_recon_tensor = decoder(z)
     
     # Reconvertir en numpy uint8 [0, 255]
     x_denoised = (x_recon_tensor.permute(0, 2, 3, 1).cpu().numpy() * 255.0)
     x_denoised = np.clip(x_denoised, 0, 255).astype(np.uint8)
     
-    # Calculer les métriques
+    # Calculer les métriques (comme dans test_visualization.py)
     psnr_noisy_list = []
     psnr_denoised_list = []
     mse_noisy_list = []
@@ -119,9 +103,9 @@ def calculate_metrics_for_noise_type(model, x_data, noise_type, noise_params, de
     }
 
 
-def plot_results(results):
+def plot_simple_results(results):
     """
-    Crée 2 graphiques : PSNR et MSE avec barres pour chaque type de bruit
+    Crée 2 graphiques : PSNR et MSE avec 6 barres chacun (2 par type de bruit)
     
     Args:
         results: Liste de dictionnaires contenant les résultats pour chaque type de bruit
@@ -165,12 +149,12 @@ def plot_results(results):
     # Configuration du graphique PSNR
     ax1.set_xlabel('Type de bruit', fontsize=13, fontweight='bold')
     ax1.set_ylabel('PSNR (dB)', fontsize=13, fontweight='bold')
-    ax1.set_title('U-Net Multi-Noise - PSNR moyen : Images bruitées vs Images débruitées', fontsize=14, fontweight='bold')
+    ax1.set_title('PSNR moyen : Images bruitées vs Images débruitées', fontsize=14, fontweight='bold')
     ax1.set_xticks(x)
     ax1.set_xticklabels(noise_types, fontsize=11)
     ax1.legend(fontsize=11, loc='upper right')
     ax1.grid(axis='y', alpha=0.3, linestyle='--', linewidth=1)
-    ax1.axhline(y=0, color='black', linestyle='-', linewidth=1.5, alpha=0.5)
+    ax1.axhline(y=0, color='black', linestyle='-', linewidth=1.5, alpha=0.5)  # Ligne à y=0
     
     # Ajuster les marges
     all_psnr = psnr_noisy + psnr_denoised
@@ -186,19 +170,19 @@ def plot_results(results):
     for bar in bars3:
         height = bar.get_height()
         ax2.text(bar.get_x() + bar.get_width()/2., height,
-                f'{height:.1f}',
+                f'{height:.4f}',
                 ha='center', va='bottom', fontsize=10, fontweight='bold')
     
     for bar in bars4:
         height = bar.get_height()
         ax2.text(bar.get_x() + bar.get_width()/2., height,
-                f'{height:.1f}',
+                f'{height:.4f}',
                 ha='center', va='bottom', fontsize=10, fontweight='bold')
     
     # Configuration du graphique MSE
     ax2.set_xlabel('Type de bruit', fontsize=13, fontweight='bold')
     ax2.set_ylabel('MSE', fontsize=13, fontweight='bold')
-    ax2.set_title('U-Net Multi-Noise - MSE moyen : Images bruitées vs Images débruitées', fontsize=14, fontweight='bold')
+    ax2.set_title('MSE moyen : Images bruitées vs Images débruitées', fontsize=14, fontweight='bold')
     ax2.set_xticks(x)
     ax2.set_xticklabels(noise_types, fontsize=11)
     ax2.legend(fontsize=11, loc='upper right')
@@ -211,7 +195,7 @@ def plot_results(results):
     plt.tight_layout()
     
     # Sauvegarder la figure
-    output_path = './code/evaluation_unet_multinoise.png'
+    output_path = './code/evaluation_beta0_simple.png'
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"\n✓ Graphique sauvegardé dans: {output_path}")
     
@@ -220,11 +204,10 @@ def plot_results(results):
 
 def main():
     """
-    Fonction principale - évalue le modèle U-Net sur les 3 types de bruit
+    Fonction principale - évalue le modèle beta0 sur les 3 types de bruit
     """
     print("=" * 80)
-    print("ÉVALUATION DU MODÈLE U-NET MULTI-NOISE (unet_denoising_multinoise.pth)")
-    print("Comparaison avec vae_denoiser_beta0.pth (mêmes bruits)")
+    print("ÉVALUATION DU MODÈLE vae_denoiser_beta0.pth")
     print("=" * 80)
     
     # Charger les données CIFAR-10
@@ -238,22 +221,28 @@ def main():
     print(f"Nombre d'images d'évaluation disponibles: {len(x_eval)}")
     
     # Configuration du modèle
+    latent_dim = 128
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device utilisé: {device}")
     
-    # Charger le modèle U-Net multi-noise
-    model_path = './code/unet_denoising_multinoise.pth'
+    # Initialiser le modèle
+    encoder = Encoder(latent_dim=latent_dim)
+    decoder = Decoder(latent_dim=latent_dim)
+    
+    # Charger les poids du modèle beta0
+    model_path = './code/vae_denoiser_beta0.pth'
     print(f"\nChargement du modèle depuis: {model_path}")
     
-    try:
-        model = load_unet_model(model_path, device)
-        print("✓ Modèle U-Net chargé avec succès!")
-    except FileNotFoundError:
-        print(f"❌ Fichier '{model_path}' introuvable")
-        print("   Veuillez d'abord entraîner le modèle avec: python unet_train_multi_noise.py")
-        return
+    encoder, decoder, history = load_model(
+        encoder,
+        decoder,
+        filepath=model_path,
+        device=device
+    )
     
-    # Définir les configurations de bruit (IDENTIQUES à test_beta_zero.py et evaluate_beta0_simple.py)
+    print("✓ Modèle chargé avec succès!")
+    
+    # Définir les configurations de bruit à tester
     noise_configs = [
         {
             'name': 'Gaussien',
@@ -282,7 +271,8 @@ def main():
         print(f"Paramètres: {config['params']}")
         
         metrics = calculate_metrics_for_noise_type(
-            model=model,
+            encoder=encoder,
+            decoder=decoder,
             x_data=x_eval,
             noise_type=config['type'],
             noise_params=config['params'],
@@ -303,13 +293,13 @@ def main():
         print(f"→ GAIN PSNR:                    +{metrics['psnr_gain']:.2f} dB")
         
         print("\n--- MSE ---")
-        print(f"MSE moyen (images bruitées):    {metrics['avg_mse_noisy']:.2f}")
-        print(f"MSE moyen (images débruitées):  {metrics['avg_mse_denoised']:.2f}")
-        print(f"→ RÉDUCTION MSE:                -{metrics['mse_reduction']:.2f} ({metrics['mse_reduction_percent']:.1f}%)")
+        print(f"MSE moyen (images bruitées):    {metrics['avg_mse_noisy']:.6f}")
+        print(f"MSE moyen (images débruitées):  {metrics['avg_mse_denoised']:.6f}")
+        print(f"→ RÉDUCTION MSE:                -{metrics['mse_reduction']:.6f} ({metrics['mse_reduction_percent']:.1f}%)")
     
     # Résumé final
     print("\n" + "=" * 80)
-    print("RÉSUMÉ COMPARATIF U-NET MULTI-NOISE")
+    print("RÉSUMÉ COMPARATIF")
     print("=" * 80)
     
     print("\n{:<20s} {:>15s} {:>15s} {:>15s}".format(
@@ -319,7 +309,7 @@ def main():
     
     for result in results:
         m = result['metrics']
-        print("{:<20s} {:>15.2f} {:>15.2f} {:>15.1f}".format(
+        print("{:<20s} {:>15.2f} {:>15.6f} {:>15.1f}".format(
             result['name'],
             m['psnr_gain'],
             m['mse_reduction'],
@@ -339,16 +329,12 @@ def main():
     print("GÉNÉRATION DU GRAPHIQUE")
     print("=" * 80)
     
-    # Créer le graphique
-    plot_results(results)
+    # Créer le graphique simple
+    plot_simple_results(results)
     
     print("\n" + "=" * 80)
     print("ÉVALUATION TERMINÉE ✓")
     print("=" * 80)
-    
-    print("\n💡 COMPARAISON VAE (beta=0) vs U-NET:")
-    print("   Exécutez maintenant: python evaluate_beta0_simple.py")
-    print("   pour comparer les résultats côte à côte!")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 
-from unet_model import UNet
+from UNET.unet_model import UNet
 from utils import add_noise_to_images
 from patch_utils import denoise_with_patches
 import torch.nn as nn

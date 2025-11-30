@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 from load_cifar10 import CIFAR10Loader
-from vae_model import Encoder, Decoder
-from vae_train import load_model, evaluate_vae
+from VAE.vae_model import Encoder, Decoder
+from VAE.vae_train import load_model, evaluate_vae
 
 def test_visualization():
     """Teste uniquement la visualisation avec le modèle sauvegardé"""

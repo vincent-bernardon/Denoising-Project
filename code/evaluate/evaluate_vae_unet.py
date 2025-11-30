@@ -10,10 +10,10 @@ import matplotlib.pyplot as plt
 import argparse
 from pathlib import Path
 
-from vae_model import Encoder, Decoder
-from vae_model_96 import Encoder96, Decoder96
-from vae_train import load_model, calculate_psnr, calculate_mse
-from unet_model import UNet
+from VAE.vae_model import Encoder, Decoder
+from VAE.vae_model_96 import Encoder96, Decoder96
+from VAE.vae_train import load_model, calculate_psnr, calculate_mse
+from UNET.unet_model import UNet
 from utils import add_noise_to_images
 from patch_utils import denoise_with_patches
 from patch_utils import denoise_with_patches

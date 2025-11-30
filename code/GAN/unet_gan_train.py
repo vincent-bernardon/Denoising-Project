@@ -15,7 +15,7 @@ import torch.optim as optim
 import argparse
 from tqdm import tqdm
 
-from unet_model import UNet
+from UNET.unet_model import UNet
 from utils import add_noise_to_images
 
 

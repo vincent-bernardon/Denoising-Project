@@ -9,15 +9,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torchvision
 from torchvision import transforms
-from unet_model import UNet
+from UNET.unet_model import UNet
 from utils import add_noise_to_images
 
 
 def reconstruct_image_from_patches(patches, image_size=96, patch_size=32, stride=16):
     """
-    Reconstruit une image complète à partir de patches avec superposition
-    Utilise une moyenne pondérée pour les zones de superposition
-    
     Args:
         patches: Liste de patches [n_patches, C, patch_size, patch_size]
         image_size: Taille de l'image finale (96 pour STL-10)
@@ -54,8 +51,6 @@ def reconstruct_image_from_patches(patches, image_size=96, patch_size=32, stride
 
 def denoise_full_image(model, img_clean, noise_type, noise_params, device, patch_size=32, stride=16):
     """
-    Débruite une image complète en la découpant en patches, puis reconstruit
-    
     Args:
         model: Modèle U-Net
         img_clean: Image propre [C, H, W] en [0,1]
@@ -115,7 +110,6 @@ def denoise_full_image(model, img_clean, noise_type, noise_params, device, patch
 
 
 def calculate_psnr(img1, img2, max_pixel_value=255.0):
-    """Calcule le PSNR entre deux images (format uint8)"""
     mse = np.mean((img1.astype(float) - img2.astype(float)) ** 2)
     if mse == 0:
         return float('inf')
@@ -124,13 +118,11 @@ def calculate_psnr(img1, img2, max_pixel_value=255.0):
 
 
 def calculate_mse(img1, img2):
-    """Calcule le MSE entre deux images"""
     mse = np.mean((img1.astype(float) - img2.astype(float)) ** 2)
     return mse
 
 
 def load_unet_model(model_path, device):
-    """Charge le modèle U-Net sauvegardé"""
     model = UNet(n_channels=3, n_classes=3, base_features=64)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
@@ -141,8 +133,6 @@ def load_unet_model(model_path, device):
 def calculate_metrics_for_noise_type(model, test_dataset, noise_type, noise_params, device, 
                                      n_samples=100, patch_size=32, stride=16):
     """
-    Calcule les métriques moyennes pour un type de bruit donné sur images complètes
-    
     Args:
         model: Modèle U-Net
         test_dataset: Dataset STL-10 test (images 96x96)
@@ -218,11 +208,7 @@ def calculate_metrics_for_noise_type(model, test_dataset, noise_type, noise_para
 
 def plot_visual_results(model, test_dataset, noise_configs, device, n_samples=10, 
                        patch_size=32, stride=16):
-    """
-    Affiche des exemples visuels de débruitage sur images complètes
-    VERSION AMÉLIORÉE : Plus d'images (10) et plus grandes
-    Crée un graphique séparé pour chaque type de bruit
-    """
+
     indices = np.random.choice(len(test_dataset), n_samples, replace=False)
     
     for noise_idx, noise_config in enumerate(noise_configs):
@@ -291,8 +277,7 @@ def plot_visual_results(model, test_dataset, noise_configs, device, n_samples=10
 def plot_visual_results_combined(model, test_dataset, noise_configs, device, n_samples=8, 
                                  patch_size=32, stride=16):
     """
-    Version alternative : tous les types de bruit sur une seule grande figure
-    8 images × 3 types de bruit × 3 lignes = figure très large
+    8 images x 3 types de bruit x 3 lignes = figure très large
     """
     indices = np.random.choice(len(test_dataset), n_samples, replace=False)
     
@@ -364,9 +349,7 @@ def plot_visual_results_combined(model, test_dataset, noise_configs, device, n_s
 
 
 def plot_metrics(results):
-    """
-    Crée 2 graphiques : PSNR et MSE avec barres pour chaque type de bruit
-    """
+
     noise_types = [r['name'] for r in results]
     
     psnr_noisy = [r['metrics']['avg_psnr_noisy'] for r in results]
@@ -464,7 +447,7 @@ def main():
         model = load_unet_model(model_path, device)
         print("✓ Modèle chargé avec succès!")
     except FileNotFoundError:
-        print(f"❌ Fichier '{model_path}' introuvable")
+        print(f"X Fichier '{model_path}' introuvable")
         print("   Entraînez d'abord le modèle avec:")
         print("   python unet_train_multi_noise.py --dataset stl10")
         return
