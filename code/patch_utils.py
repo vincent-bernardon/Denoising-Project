@@ -238,6 +238,52 @@ if __name__ == "__main__":
     print("PATCH UTILITIES - Tests et exemples")
     print("=" * 80)
     
+def denoise_with_patches_edge(model, img_tensor, device, patch_size=32, stride=16):
+    """
+    Débruite une image en utilisant des patches, en gérant les bords pour éviter les artefacts si l'image n'est pas un multiple de patch_size.
+    Args:
+        model: Modèle U-Net chargé et en mode eval
+        img_tensor: Image (C, H, W) torch.Tensor [0, 1]
+        device: Device (cuda/cpu)
+        patch_size: Taille des patches (défaut: 32)
+        stride: Décalage entre patches (défaut: 16)
+    Returns:
+        torch.Tensor: Image débruitée (C, H, W) [0, 1]
+    """
+    import torch
+    c, h, w = img_tensor.shape
+    denoised_img = torch.zeros((c, h, w), dtype=img_tensor.dtype)
+    weight_map = torch.zeros((h, w), dtype=img_tensor.dtype)
+
+    # Calculer les positions des patches en gérant les bords
+    i_list = list(range(0, h - patch_size + 1, stride))
+    j_list = list(range(0, w - patch_size + 1, stride))
+    if (h - patch_size) % stride != 0:
+        i_list.append(h - patch_size)
+    if (w - patch_size) % stride != 0:
+        j_list.append(w - patch_size)
+
+    positions = [(i, j) for i in i_list for j in j_list]
+
+    patches = []
+    for (i, j) in positions:
+        patch = img_tensor[:, i:i+patch_size, j:j+patch_size]
+        patches.append(patch)
+
+    patches = torch.stack(patches)
+    patches = patches.to(device)
+
+    with torch.no_grad():
+        denoised_patches = model(patches).cpu()
+
+    # Reconstruction avec moyenne pondérée
+    for idx, (i, j) in enumerate(positions):
+        denoised_img[:, i:i+patch_size, j:j+patch_size] += denoised_patches[idx]
+        weight_map[i:i+patch_size, j:j+patch_size] += 1
+
+    weight_map = weight_map.unsqueeze(0)
+    denoised_img = denoised_img / weight_map
+    return denoised_img
     # Exemple 1: Information sur la grille de patches pour STL-10
     print("\n📊 Configuration pour STL-10 (96x96):")
     visualize_patch_grid(96, 96, patch_size=32, stride=16)

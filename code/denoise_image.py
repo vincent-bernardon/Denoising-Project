@@ -32,11 +32,15 @@ def denoise_image(image_path, model_path, method='global'):
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
 
+    from patch_utils import denoise_with_patches_edge
     with torch.no_grad():
         img_tensor = img_tensor.to(device)
         if method == 'patch':
-            # Débruitage par patchs
+            # Débruitage par patchs classique
             denoised = denoise_with_patches(model, img_tensor, device, patch_size=32, stride=16)
+        elif method == 'patch_edge':
+            # Débruitage par patchs avec gestion des bords
+            denoised = denoise_with_patches_edge(model, img_tensor, device, patch_size=32, stride=16)
         else:
             # Débruitage global
             denoised = model(img_tensor.unsqueeze(0))[0]
@@ -72,10 +76,13 @@ def main():
     # Choix de la méthode
     print("Méthode de débruitage :")
     print("1. Global (image entière)")
-    print("2. Par patchs")
-    method_choice = input("Choisir la méthode (1/2) : ").strip()
+    print("2. Par patchs (classique)")
+    print("3. Par patchs (bord ajusté, recommandé si artefacts)")
+    method_choice = input("Choisir la méthode (1/2/3) : ").strip()
     if method_choice == '2':
         method = 'patch'
+    elif method_choice == '3':
+        method = 'patch_edge'
     else:
         method = 'global'
 
