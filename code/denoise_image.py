@@ -72,7 +72,7 @@ def main():
     # Choix de la méthode
     print("Méthode de débruitage :")
     print("1. Global (image entière)")
-    print("2. Par patchs (comme l'évaluation)")
+    print("2. Par patchs")
     method_choice = input("Choisir la méthode (1/2) : ").strip()
     if method_choice == '2':
         method = 'patch'
